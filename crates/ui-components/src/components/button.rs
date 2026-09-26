@@ -9,7 +9,7 @@ pub struct Button<'a> {
     pub label: &'a str,
     pub hx_post: Option<&'a str>,
     pub hx_target: Option<&'a str>,
-    pub className: ClassName,
+    pub class_name: &'a str,
     pub style_sheet: &'static str,
 }
 
@@ -19,7 +19,7 @@ impl<'a> Button<'a> {
             label,
             hx_post: None,
             hx_target: None,
-            className: ClassName::default(),
+            class_name: ClassName::BTN,
             style_sheet: STYLE_SHEET,
         }
     }

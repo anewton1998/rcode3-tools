@@ -1,11 +1,18 @@
-use axum::{routing::get, Router};
+use askama::Template;
+use axum::{response::Html, routing::get, Router};
 use ui_components::Button;
 
-async fn render_dashboard() -> Button<'static> {
+async fn render_dashboard() -> Result<Html<String>, axum::http::StatusCode> {
     // Instantiate shared button with HTMX attributes directly
-    Button::new("Save Settings")
+    let button = Button::new("Save Settings")
         .hx_post("/api/settings")
-        .hx_target("#status-message")
+        .hx_target("#status-message");
+
+    Ok(Html(
+        button
+            .render()
+            .map_err(|_| axum::http::StatusCode::INTERNAL_SERVER_ERROR)?,
+    ))
 }
 
 #[tokio::main]
