@@ -46,6 +46,14 @@ async fn save_settings() -> Result<Html<String>, StatusCode> {
 
 #[tokio::main]
 async fn main() {
+    dotenvy::dotenv().ok();
+
+    let host = std::env::var("HOST").unwrap_or_else(|_| "127.0.0.1".to_string());
+    let port: u16 = match std::env::var("PORT") {
+        Ok(value) => value.parse().expect("PORT must be a valid port number"),
+        Err(_) => 3000,
+    };
+
     let base_css = ui_components::global_base_css().expect("base css compiles at startup");
 
     let app = Router::new()
@@ -65,6 +73,9 @@ async fn main() {
             ServeDir::new(format!("{}/static", env!("CARGO_MANIFEST_DIR"))),
         );
 
-    let listener = tokio::net::TcpListener::bind("127.0.0.1:3000").await.unwrap();
+    let listener = tokio::net::TcpListener::bind((host.as_str(), port))
+        .await
+        .unwrap();
+    println!("listening on http://{host}:{port}");
     axum::serve(listener, app).await.unwrap();
 }
