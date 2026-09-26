@@ -9,12 +9,13 @@ use tower_http::services::ServeDir;
 use tower_http::trace::{DefaultMakeSpan, DefaultOnResponse, TraceLayer};
 use tracing::Level;
 use tracing_subscriber::EnvFilter;
-use ui_components::Button;
+use ui_components::{Button, Theme};
 
 #[derive(Template)]
 #[template(path = "dashboard.html")]
 struct Dashboard {
     button_html: String,
+    theme: &'static str,
 }
 
 #[derive(Template)]
@@ -35,6 +36,7 @@ async fn render_dashboard() -> Result<Html<String>, StatusCode> {
 
     let page = Dashboard {
         button_html: button.render().map_err(render_error)?,
+        theme: Theme::from_env().class_name(),
     };
     Ok(Html(page.render().map_err(render_error)?))
 }
@@ -64,7 +66,7 @@ async fn main() {
         Err(_) => 3000,
     };
 
-    let base_css = ui_components::global_base_css().expect("base css compiles at startup");
+    let base_css = ui_components::global_css();
 
     let app = Router::new()
         .route("/", get(render_dashboard))
@@ -74,7 +76,7 @@ async fn main() {
             get(move || async move {
                 (
                     [(header::CONTENT_TYPE, "text/css; charset=utf-8")],
-                    base_css.clone(),
+                    base_css,
                 )
             }),
         )

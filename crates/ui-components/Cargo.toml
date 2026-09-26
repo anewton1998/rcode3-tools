@@ -5,7 +5,3 @@ edition.workspace = true
 
 [dependencies]
 askama.workspace = true
-axum.workspace = true
-grass.workspace = true
-tokio.workspace = true
-turf.workspace = true

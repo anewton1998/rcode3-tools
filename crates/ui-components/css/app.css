@@ -1,0 +1,10 @@
+/* App-specific additions layered on top of rcode3.css */
+
+.rcode3_button {
+	padding: .25em .75em;
+}
+
+.htmx-request {
+	opacity: 0.6;
+	pointer-events: none;
+}
