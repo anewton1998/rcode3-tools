@@ -6,6 +6,7 @@ edition = "2024"
 [workspace]
 members = [
     "crates/ui-components",
+    "crates/rdap-wasm",
     "apps/rdap-lookup",
 ]
 resolver = "2"
@@ -13,8 +14,14 @@ resolver = "2"
 [workspace.dependencies]
 askama = { version = "0.16", features = ["full"] }
 axum = "0.8"
-tokio = { version = "1", features = ["full"] }
 dotenvy = "0.15"
+icann-rdap-client = "1.0"
+icann-rdap-common = "1.0"
+js-sys = "0.3"
+serde-wasm-bindgen = "0.6"
+tokio = { version = "1", features = ["full"] }
 tower-http = { version = "0.6", features = ["fs", "trace"] }
 tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+wasm-bindgen = "0.2"
+wasm-bindgen-futures = "0.4"

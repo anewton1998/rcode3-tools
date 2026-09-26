@@ -8,6 +8,11 @@
 </head>
 <body>
     {% block content %}{% endblock %}
+    <script type="module">
+        import initRdap, * as RdapClient from '/static/wasm/rdap_wasm.js';
+        await initRdap();
+        window.RdapClient = RdapClient;
+    </script>
     <script src="/static/vendor/htmx.min.js"></script>
     <script src="/static/vendor/alpine.min.js" defer></script>
 </body>

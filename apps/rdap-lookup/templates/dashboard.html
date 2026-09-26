@@ -6,5 +6,19 @@
 <main>
     {{ button_html|safe }}
     <div id="status-message"></div>
+
+    <div x-data="{ query: '', result: '', error: '', busy: false }">
+        <input type="text" class="rcode3_input_text" x-model="query"
+               placeholder="example.com or 192.0.2.1">
+        <button class="rcode3_button" :disabled="busy"
+                @click="async () => {
+                    busy = true; error = '';
+                    try { result = await window.RdapClient.rdap_lookup_html(query); }
+                    catch (e) { error = String(e); result = ''; }
+                    busy = false;
+                }">Lookup</button>
+        <div x-html="result"></div>
+        <span class="error_text" x-show="error" x-text="error"></span>
+    </div>
 </main>
 {% endblock %}
