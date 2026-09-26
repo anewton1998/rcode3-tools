@@ -19,6 +19,8 @@ pub use theme::Theme;
 
 pub fn global_css() -> &'static str {
     concat!(
+        include_str!("../css/fonts.css"),
+        "\n",
         include_str!("../css/rcode3.css"),
         "\n",
         include_str!("../css/app.css")
