@@ -1,0 +1,11 @@
+[package]
+name = "rdap-lookup"
+version.workspace = true
+edition.workspace = true
+
+[dependencies]
+askama.workspace = true
+axum.workspace = true
+tokio.workspace = true
+turf.workspace = true
+ui-components = { path = "../../crates/ui-components" }

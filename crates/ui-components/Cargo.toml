@@ -1,0 +1,10 @@
+[package]
+name = "ui-components"
+version.workspace = true
+edition.workspace = true
+
+[dependencies]
+askama.workspace = true
+axum.workspace = true
+tokio.workspace = true
+turf.workspace = true

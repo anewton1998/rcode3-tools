@@ -1,0 +1,9 @@
+<style>
+  {{ style_sheet|safe }}
+</style>
+
+<button class="{{ className.btn }}" 
+        {% if let Some(hx_post) = hx_post %} hx-post="{{ hx_post }}" {% endif %}
+        {% if let Some(hx_target) = hx_target %} hx-target="{{ hx_target }}" {% endif %}>
+  {{ label }}
+</button>

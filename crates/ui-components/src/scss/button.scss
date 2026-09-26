@@ -1,0 +1,14 @@
+@use "tokens" as *;
+
+.btn {
+  background-color: $color-primary;
+  color: white;
+  padding: $space-sm $space-md;
+  border-radius: $radius-md;
+  border: none;
+  font-weight: 600;
+
+  &:hover {
+    background-color: $color-primary-hover;
+  }
+}

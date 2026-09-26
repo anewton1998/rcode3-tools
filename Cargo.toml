@@ -1,0 +1,18 @@
+[workspace.package]
+name = "rcode3-tools"
+version = "0.1.0"
+edition = "2024"
+
+[workspace]
+members = [
+    "crates/ui-components",
+    "apps/rdap-lookup",
+]
+resolver = "2"
+
+[workspace.dependencies]
+askama = { version = "0.12", features = ["with-axum"] }
+axum = "0.7"
+grass = "0.13"
+tokio = { version = "1.0", features = ["full"] }
+turf = "0.7"
