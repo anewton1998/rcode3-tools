@@ -1,23 +1,50 @@
 mod custom;
 
-use icann_rdap_client::iana::MemoryBootstrapStore;
+use std::collections::HashSet;
+use std::sync::Mutex;
+
 use icann_rdap_client::prelude::*;
 use icann_rdap_client::rdap::ResponseData;
 use wasm_bindgen::JsValue;
 use wasm_bindgen::prelude::*;
 
-fn init_panic_hook() {
-    #[cfg(target_arch = "wasm32")]
-    console_error_panic_hook::set_once();
+pub const DEFAULT_BOOTSTRAP_URL: &str = "https://rdap.org";
+
+static BOOTSTRAP_URL: Mutex<Option<String>> = Mutex::new(None);
+
+fn normalize_base_url(url: &str) -> String {
+    url.trim().trim_end_matches('/').to_string()
+}
+
+fn current_bootstrap_url() -> String {
+    BOOTSTRAP_URL
+        .lock()
+        .ok()
+        .and_then(|guard| guard.clone())
+        .unwrap_or_else(|| DEFAULT_BOOTSTRAP_URL.to_string())
+}
+
+/// Sets the RDAP bootstrap URL (the redirector used for all lookups).
+#[wasm_bindgen]
+pub fn set_bootstrap_url(url: &str) {
+    let mut guard = BOOTSTRAP_URL.lock().expect("bootstrap url lock poisoned");
+    *guard = Some(normalize_base_url(url));
+}
+
+/// Returns the currently configured bootstrap URL.
+#[wasm_bindgen(js_name = getBootstrapUrl)]
+pub fn get_bootstrap_url() -> String {
+    current_bootstrap_url()
 }
 
 async fn lookup(query: &str) -> Result<ResponseData, String> {
-    let client = create_client(&ClientConfig::default()).map_err(|e| e.to_string())?;
-    let store = MemoryBootstrapStore::new();
+    let config = ClientConfig::builder().exts_list(HashSet::new()).build();
+    let client = create_client(&config).map_err(|e| e.to_string())?;
     let query_type = query
         .parse::<QueryType>()
         .map_err(|_| format!("invalid RDAP query: {query}"))?;
-    rdap_bootstrapped_request(&query_type, &client, &store, |_| {})
+    let base_url = current_bootstrap_url();
+    rdap_request(&base_url, &query_type, &client)
         .await
         .map_err(|e| e.to_string())
 }
@@ -26,7 +53,6 @@ async fn lookup(query: &str) -> Result<ResponseData, String> {
 /// response as a JS object.
 #[wasm_bindgen]
 pub async fn rdap_lookup(query: &str) -> Result<JsValue, JsValue> {
-    init_panic_hook();
     let data = lookup(query).await.map_err(|e| JsValue::from_str(&e))?;
     serde_wasm_bindgen::to_value(&data).map_err(|e| JsValue::from_str(&e.to_string()))
 }
@@ -35,13 +61,28 @@ pub async fn rdap_lookup(query: &str) -> Result<JsValue, JsValue> {
 /// custom client-side logic in `custom.rs`.
 #[wasm_bindgen]
 pub async fn rdap_lookup_html(query: &str) -> Result<String, JsValue> {
-    init_panic_hook();
     let data = lookup(query).await.map_err(|e| JsValue::from_str(&e))?;
     Ok(custom::domain_summary_html(&data))
 }
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn bootstrap_url_normalization() {
+        assert_eq!(normalize_base_url("https://rdap.org"), "https://rdap.org");
+        assert_eq!(normalize_base_url("https://rdap.org/"), "https://rdap.org");
+        assert_eq!(
+            normalize_base_url("  https://example.com/rdap//  "),
+            "https://example.com/rdap"
+        );
+    }
+
+    #[test]
+    fn default_bootstrap_url() {
+        assert_eq!(current_bootstrap_url(), DEFAULT_BOOTSTRAP_URL);
+    }
 
     #[tokio::test]
     async fn native_lookup_domain() {

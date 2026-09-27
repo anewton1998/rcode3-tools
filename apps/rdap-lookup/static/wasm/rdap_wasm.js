@@ -112,6 +112,23 @@ export class IntoUnderlyingSource {
 if (Symbol.dispose) IntoUnderlyingSource.prototype[Symbol.dispose] = IntoUnderlyingSource.prototype.free;
 
 /**
+ * Returns the currently configured bootstrap URL.
+ * @returns {string}
+ */
+export function getBootstrapUrl() {
+    let deferred1_0;
+    let deferred1_1;
+    try {
+        const ret = wasm.getBootstrapUrl();
+        deferred1_0 = ret[0];
+        deferred1_1 = ret[1];
+        return getStringFromWasm0(ret[0], ret[1]);
+    } finally {
+        wasm.__wbindgen_free(deferred1_0, deferred1_1, 1);
+    }
+}
+
+/**
  * Runs an RDAP lookup in the browser and resolves with the full parsed
  * response as a JS object.
  * @param {string} query
@@ -135,6 +152,16 @@ export function rdap_lookup_html(query) {
     const len0 = WASM_VECTOR_LEN;
     const ret = wasm.rdap_lookup_html(ptr0, len0);
     return ret;
+}
+
+/**
+ * Sets the RDAP bootstrap URL (the redirector used for all lookups).
+ * @param {string} url
+ */
+export function set_bootstrap_url(url) {
+    const ptr0 = passStringToWasm0(url, wasm.__wbindgen_malloc, wasm.__wbindgen_realloc);
+    const len0 = WASM_VECTOR_LEN;
+    wasm.set_bootstrap_url(ptr0, len0);
 }
 function __wbg_get_imports() {
     const import0 = {
@@ -233,17 +260,6 @@ function __wbg_get_imports() {
             const ret = arg0.entries();
             return ret;
         },
-        __wbg_error_757e9472f8410341: function(arg0, arg1) {
-            let deferred0_0;
-            let deferred0_1;
-            try {
-                deferred0_0 = arg0;
-                deferred0_1 = arg1;
-                console.error(getStringFromWasm0(arg0, arg1));
-            } finally {
-                wasm.__wbindgen_free(deferred0_0, deferred0_1, 1);
-            }
-        },
         __wbg_fetch_7a37768ab67c5bd8: function(arg0) {
             const ret = fetch(arg0);
             return ret;
@@ -288,10 +304,6 @@ function __wbg_get_imports() {
         },
         __wbg_new_0_72d020f0c63443d4: function() {
             const ret = new Date();
-            return ret;
-        },
-        __wbg_new_227d7c05414eb861: function() {
-            const ret = new Error();
             return ret;
         },
         __wbg_new_28744009d011f847: function() {
@@ -414,13 +426,6 @@ function __wbg_get_imports() {
             const ret = arg0.signal;
             return ret;
         },
-        __wbg_stack_3b0d974bbf31e44f: function(arg0, arg1) {
-            const ret = arg1.stack;
-            const ptr1 = passStringToWasm0(ret, wasm.__wbindgen_malloc, wasm.__wbindgen_realloc);
-            const len1 = WASM_VECTOR_LEN;
-            getDataViewMemory0().setInt32(arg0 + 4 * 1, len1, true);
-            getDataViewMemory0().setInt32(arg0 + 4 * 0, ptr1, true);
-        },
         __wbg_static_accessor_GLOBAL_266715b9d96ba635: function() {
             const ret = typeof global === 'undefined' ? null : global;
             return isLikeNone(ret) ? 0 : addToExternrefTable0(ret);
@@ -469,12 +474,12 @@ function __wbg_get_imports() {
             return isLikeNone(ret) ? 0 : addToExternrefTable0(ret);
         },
         __wbindgen_generic_0000000000000001: function(arg0, arg1) {
-            // Cast intrinsic for `Closure(Closure { owned: true, function: Function { arguments: [Externref], shim_idx: 1179, ret: Result(Unit), inner_ret: Some(Result(Unit)) }, mutable: true }) -> Externref`.
+            // Cast intrinsic for `Closure(Closure { owned: true, function: Function { arguments: [Externref], shim_idx: 1124, ret: Result(Unit), inner_ret: Some(Result(Unit)) }, mutable: true }) -> Externref`.
             const ret = makeMutClosure(arg0, arg1, wasm_bindgen_f7f1c3b9929b6523___convert__closures_____invoke___wasm_bindgen_f7f1c3b9929b6523___JsValue__core_9b3796e30d99ddb7___result__Result_____wasm_bindgen_f7f1c3b9929b6523___JsError___true_);
             return ret;
         },
         __wbindgen_generic_0000000000000002: function(arg0, arg1) {
-            // Cast intrinsic for `Closure(Closure { owned: true, function: Function { arguments: [], shim_idx: 891, ret: Unit, inner_ret: Some(Unit) }, mutable: true }) -> Externref`.
+            // Cast intrinsic for `Closure(Closure { owned: true, function: Function { arguments: [], shim_idx: 860, ret: Unit, inner_ret: Some(Unit) }, mutable: true }) -> Externref`.
             const ret = makeMutClosure(arg0, arg1, wasm_bindgen_f7f1c3b9929b6523___convert__closures_____invoke_______true_);
             return ret;
         },

@@ -11,6 +11,9 @@
     <script type="module">
         import initRdap, * as RdapClient from '/static/wasm/rdap_wasm.js';
         await initRdap();
+        if (window.RDAP_BOOTSTRAP_URL) {
+            RdapClient.set_bootstrap_url(window.RDAP_BOOTSTRAP_URL);
+        }
         window.RdapClient = RdapClient;
     </script>
     <script src="/static/vendor/htmx.min.js"></script>

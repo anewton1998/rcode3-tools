@@ -47,8 +47,8 @@ rcode3-tools/
  │  ├── alpine.min.js      local interactivity                │
  │  └── rdap_wasm.js       window.RdapClient (ES module)      │
  │        └── rdap_wasm_bg.wasm                                │
- │             icann-rdap-client + custom Rust logic           │
- │             (fetches IANA bootstrap + RDAP servers directly)│
+│             icann-rdap-client + custom Rust logic           │
+│             (bootstrap URL redirector → registry RDAP srvrs)│
  └───────────────┬────────────────────────────┬───────────────┘
                  │ htmx: POST /api/settings   │ direct: https://rdap.<tld>/...
                  ▼                            ▼
@@ -118,8 +118,16 @@ The chosen class is placed on `<html>` by `layout.html`.
 
 A `cdylib` that runs in the browser via wasm-bindgen. It wraps
 [`icann-rdap-client`](https://crates.io/crates/icann-rdap-client) and
-`icann-rdap-common`, which perform IANA bootstrap + RDAP queries over reqwest
-(browser fetch on wasm). Exports:
+`icann-rdap-common`, issuing RDAP queries over reqwest (browser fetch on wasm).
+
+**Bootstrapping**: lookups go through a single configurable *bootstrap URL* —
+a redirector that 302s each query to the correct registry server — instead of
+fetching IANA bootstrap JSON. The default is `https://rdap.org`. It can be
+changed at runtime with `RdapClient.set_bootstrap_url(url)` (trailing slashes
+are trimmed), or page-wide by setting `window.RDAP_BOOTSTRAP_URL` before the
+module script runs; `RdapClient.getBootstrapUrl()` returns the current value.
+
+Exports:
 
 - `rdap_lookup(query) → Promise<object>` — full parsed RDAP response as a JS object
 - `rdap_lookup_html(query) → Promise<string>` — HTML fragment produced by the

@@ -1,11 +1,12 @@
 use askama::Template;
 use axum::{
-    http::{header, StatusCode},
+    Router,
+    http::{HeaderValue, StatusCode, header},
     response::Html,
     routing::{get, post},
-    Router,
 };
 use tower_http::services::ServeDir;
+use tower_http::set_header::SetResponseHeaderLayer;
 use tower_http::trace::{DefaultMakeSpan, DefaultOnResponse, TraceLayer};
 use tracing::Level;
 use tracing_subscriber::EnvFilter;
@@ -55,8 +56,7 @@ async fn main() {
 
     tracing_subscriber::fmt()
         .with_env_filter(
-            EnvFilter::try_from_default_env()
-                .unwrap_or_else(|_| EnvFilter::new("info")),
+            EnvFilter::try_from_default_env().unwrap_or_else(|_| EnvFilter::new("info")),
         )
         .init();
 
@@ -65,6 +65,9 @@ async fn main() {
         Ok(value) => value.parse().expect("PORT must be a valid port number"),
         Err(_) => 3000,
     };
+    let cors_origin = std::env::var("CORS_ORIGIN").unwrap_or_else(|_| "*".to_string());
+    let cors_methods = std::env::var("CORS_METHODS").unwrap_or_else(|_| "*".to_string());
+    let cors_headers = std::env::var("CORS_HEADERS").unwrap_or_else(|_| "*".to_string());
 
     let base_css = ui_components::global_css();
 
@@ -84,6 +87,20 @@ async fn main() {
             "/static",
             ServeDir::new(format!("{}/static", env!("CARGO_MANIFEST_DIR"))),
         )
+        .layer(SetResponseHeaderLayer::overriding(
+            header::ACCESS_CONTROL_ALLOW_ORIGIN,
+            HeaderValue::from_str(&cors_origin).expect("CORS_ORIGIN must be a valid header value"),
+        ))
+        .layer(SetResponseHeaderLayer::overriding(
+            header::ACCESS_CONTROL_ALLOW_METHODS,
+            HeaderValue::from_str(&cors_methods)
+                .expect("CORS_METHODS must be a valid header value"),
+        ))
+        .layer(SetResponseHeaderLayer::overriding(
+            header::ACCESS_CONTROL_ALLOW_HEADERS,
+            HeaderValue::from_str(&cors_headers)
+                .expect("CORS_HEADERS must be a valid header value"),
+        ))
         .layer(
             TraceLayer::new_for_http()
                 .make_span_with(DefaultMakeSpan::new().level(Level::INFO))
