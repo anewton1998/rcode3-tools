@@ -1,3 +1,5 @@
 <input type="text" class="rcode3_input_text" name="{{ name }}"
        {% if let Some(value) = value %}value="{{ value }}" {% endif %}
-       {% if let Some(placeholder) = placeholder %}placeholder="{{ placeholder }}" {% endif %}>
+       {% if let Some(placeholder) = placeholder %}placeholder="{{ placeholder }}" {% endif %}
+       {% if let Some(x_model) = x_model %}x-model="{{ x_model }}" {% endif %}
+       {% if let Some(enter_activates) = enter_activates %}data-enter-activates="{{ enter_activates }}" onkeydown="if(event.key==='Enter'){var b=document.querySelector(this.dataset.enterActivates);if(b){b.click();}}"{% endif %}>

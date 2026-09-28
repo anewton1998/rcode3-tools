@@ -10,12 +10,13 @@ use tower_http::set_header::SetResponseHeaderLayer;
 use tower_http::trace::{DefaultMakeSpan, DefaultOnResponse, TraceLayer};
 use tracing::Level;
 use tracing_subscriber::EnvFilter;
-use ui_components::{Button, Theme};
+use ui_components::{Button, Theme, TextInput};
 
 #[derive(Template)]
 #[template(path = "dashboard.html")]
 struct Dashboard {
     button_html: String,
+    search_input_html: String,
     theme: &'static str,
 }
 
@@ -35,8 +36,14 @@ async fn render_dashboard() -> Result<Html<String>, StatusCode> {
         .hx_post("/api/settings")
         .hx_target("#status-message");
 
+    let search_input = TextInput::new("query")
+        .placeholder("example.com or 192.0.2.1")
+        .x_model("query")
+        .enter_activates("#lookup-btn");
+
     let page = Dashboard {
         button_html: button.render().map_err(render_error)?,
+        search_input_html: search_input.render().map_err(render_error)?,
         theme: Theme::from_env().class_name(),
     };
     Ok(Html(page.render().map_err(render_error)?))
