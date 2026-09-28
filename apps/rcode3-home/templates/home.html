@@ -53,15 +53,10 @@
         (function () {
             var sel = document.getElementById("theme-select");
             if (!sel) return;
-            function apply(name) {
-                document.documentElement.className = name;
-                try { localStorage.setItem("rcode3-theme", name); } catch (e) {}
-            }
-            var current = document.documentElement.className;
             for (var i = 0; i < sel.options.length; i++) {
-                if (sel.options[i].value === current) { sel.value = current; break; }
+                if (sel.options[i].value === RdapTheme.current()) { sel.value = RdapTheme.current(); break; }
             }
-            sel.addEventListener("change", function () { apply(sel.value); });
+            sel.addEventListener("change", function () { RdapTheme.set(sel.value); });
         })();
     </script>
 </main>
