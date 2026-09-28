@@ -8,3 +8,108 @@
 	opacity: 0.6;
 	pointer-events: none;
 }
+
+/* RDAP Lookup dashboard layout */
+.dashboard_body {
+	display: flex;
+	flex-direction: column;
+	gap: 1em;
+}
+
+.dash_row {
+	display: flex;
+	flex-direction: row;
+	align-items: stretch;
+	gap: 1em;
+}
+
+.panel {
+	border-width: thin;
+	border-style: solid;
+	border-color: var(--theme-sub-section-background-color);
+	border-radius: .20em;
+	padding: 1em;
+	background-color: var(--theme-sub-section-background-color);
+	color: var(--theme-primary-color);
+	min-width: 0;
+}
+
+.panel_title {
+	margin-top: 0;
+	font-family: var(--theme-panel-header-font-family);
+	font-size: var(--theme-panel-header-font-size);
+	font-weight: var(--theme-panel-header-font-weight);
+}
+
+/* top row: input + help, even 50/50 split */
+.dash_row_top .panel {
+	flex: 1 1 0;
+}
+
+/* bottom row: summary 1/3, results 2/3 (1:2 grow ratio) */
+.panel_summary {
+	flex: 1 1 0;
+}
+
+.panel_results {
+	flex: 2 1 0;
+}
+
+.help_list {
+	margin: 0;
+	padding-left: 1.25em;
+}
+
+.help_list li {
+	margin-bottom: .35em;
+}
+
+.progress_wrap {
+	display: block;
+	margin-top: .75em;
+}
+
+.error_text {
+	display: block;
+	margin-top: .75em;
+	color: var(--theme-danger-color);
+}
+
+.summary_list {
+	margin: 0;
+}
+
+.summary_list > div {
+	display: flex;
+	justify-content: space-between;
+	gap: 1em;
+	padding: .3em 0;
+	border-bottom-width: thin;
+	border-bottom-style: solid;
+	border-color: var(--theme-sub-section-background-color);
+}
+
+.summary_list dt {
+	font-weight: var(--theme-primary-font-weight);
+}
+
+.summary_list dd {
+	margin: 0;
+	text-align: right;
+	overflow-wrap: anywhere;
+	font-family: var(--theme-monospace-font-family);
+	font-size: var(--theme-monospace-font-size);
+}
+
+/* responsive stacking on narrow screens */
+@media (max-width: 700px) {
+	.dash_row {
+		flex-direction: column;
+	}
+
+	.dash_row_top .panel,
+	.panel_summary,
+	.panel_results {
+		flex: 1 1 auto;
+	}
+}

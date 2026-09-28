@@ -10,12 +10,13 @@ use tower_http::services::ServeDir;
 use tower_http::set_header::SetResponseHeaderLayer;
 use tower_http::trace::{DefaultMakeSpan, DefaultOnResponse, TraceLayer};
 use tracing::Level;
-use ui_components::{TextInput, Theme};
+use ui_components::{ProgressBar, TextInput, Theme};
 
 #[derive(Template)]
 #[template(path = "dashboard.html")]
 struct Dashboard {
     search_input_html: String,
+    progress_bar_html: String,
     theme: &'static str,
     base: String,
     home_url: String,
@@ -41,6 +42,7 @@ async fn render_dashboard(State(base): State<String>) -> Result<Html<String>, St
 
     let page = Dashboard {
         search_input_html: search_input.render().map_err(render_error)?,
+        progress_bar_html: ProgressBar.render().map_err(render_error)?,
         theme: Theme::from_env().class_name(),
         base,
         home_url,

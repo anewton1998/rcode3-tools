@@ -9,17 +9,49 @@
         <rcode3-site-name>rdap lookup</rcode3-site-name>
     </header>
 
-    <div x-data="{ query: '', result: '', error: '', busy: false }">
-        {{ search_input_html|safe }}
-        <button id="lookup-btn" class="rcode3_button" :disabled="busy"
-                @click="async () => {
-                    busy = true; error = '';
-                    try { result = await window.RdapClient.rdap_lookup_html(query); }
-                    catch (e) { error = String(e); result = ''; }
-                    busy = false;
-                }">Lookup</button>
-        <div x-html="result"></div>
-        <span class="error_text" x-show="error" x-text="error"></span>
+    <div class="dashboard_body" x-data="{
+        query: '', result: '', error: '', busy: false, queryTime: '',
+        status() { return this.busy ? 'Looking up...' : this.error ? 'Error' : this.result ? 'Complete' : 'Idle'; }
+    }">
+        <div class="dash_row dash_row_top">
+            <section class="panel panel_input">
+                {{ search_input_html|safe }}
+                <button id="lookup-btn" class="rcode3_button" :disabled="busy"
+                        @click="async () => {
+                            busy = true; error = ''; queryTime = new Date().toLocaleString();
+                            try { result = await window.RdapClient.rdap_lookup_html(query); }
+                            catch (e) { error = String(e); result = ''; }
+                            busy = false;
+                        }">Lookup</button>
+                <span class="progress_wrap" x-show="busy">{{ progress_bar_html|safe }}</span>
+                <span class="error_text" x-show="error" x-text="error"></span>
+            </section>
+
+            <section class="panel panel_help">
+                <h2 class="panel_title">How to use</h2>
+                <ul class="help_list">
+                    <li>Enter a domain name, e.g. <code>example.com</code></li>
+                    <li>Or an IP address, e.g. <code>192.0.2.1</code></li>
+                    <li>Press <kbd>Enter</kbd> or click <strong>Lookup</strong> to run the query</li>
+                </ul>
+            </section>
+        </div>
+
+        <div class="dash_row dash_row_bottom">
+            <aside class="panel panel_summary">
+                <h2 class="panel_title">Summary</h2>
+                <dl class="summary_list">
+                    <div><dt>Query</dt><dd x-text="query || '(none)'""></dd></div>
+                    <div><dt>Status</dt><dd x-text="status()"></dd></div>
+                    <div><dt>Time</dt><dd x-text="queryTime || '(none)'""></dd></div>
+                </dl>
+            </aside>
+
+            <section class="panel panel_results">
+                <h2 class="panel_title">Results</h2>
+                <div x-html="result"></div>
+            </section>
+        </div>
     </div>
 </main>
 {% endblock %}
