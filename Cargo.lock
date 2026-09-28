@@ -1460,6 +1460,20 @@ dependencies = [
 ]
 
 [[package]]
+name = "rcode3_home"
+version = "0.1.0"
+dependencies = [
+ "askama",
+ "axum",
+ "dotenvy",
+ "tokio",
+ "tower-http",
+ "tracing",
+ "tracing-subscriber",
+ "ui-components",
+]
+
+[[package]]
 name = "rdap-lookup"
 version = "0.1.0"
 dependencies = [
