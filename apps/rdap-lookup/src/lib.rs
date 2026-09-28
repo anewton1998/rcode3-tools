@@ -19,6 +19,7 @@ struct Dashboard {
     search_input_html: String,
     theme: &'static str,
     base: String,
+    home_url: String,
 }
 
 #[derive(Template)]
@@ -33,6 +34,7 @@ fn render_error(_: askama::Error) -> StatusCode {
 
 async fn render_dashboard(State(base): State<String>) -> Result<Html<String>, StatusCode> {
     let api_settings = format!("{base}/api/settings");
+    let home_url = std::env::var("HOME_URL").unwrap_or_else(|_| "/".to_string());
     let button = Button::new("Save Settings")
         .hx_post(&api_settings)
         .hx_target("#status-message");
@@ -47,6 +49,7 @@ async fn render_dashboard(State(base): State<String>) -> Result<Html<String>, St
         search_input_html: search_input.render().map_err(render_error)?,
         theme: Theme::from_env().class_name(),
         base,
+        home_url,
     };
     Ok(Html(page.render().map_err(render_error)?))
 }
