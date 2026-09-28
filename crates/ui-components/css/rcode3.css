@@ -759,7 +759,9 @@ rcode3-site-name {
 	display: flex;
 	align-items: center;
 	gap: .75rem;
-	padding: .75rem 1rem;
+	padding: .5rem 1rem;
+	margin-bottom: 1.5rem;
+	border-bottom: thin solid;
 }
 
 .site_logo {
