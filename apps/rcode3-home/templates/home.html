@@ -6,6 +6,12 @@
 <main class="main_panel">
     <header>
         <rcode3-site-name>rcode3</rcode3-site-name>
+        <label for="theme-select">Theme</label>
+        <select id="theme-select" class="rcode3_input_text">
+            {% for t in themes %}
+            <option value="{{ t.class_name() }}">{{ t.label() }}</option>
+            {% endfor %}
+        </select>
     </header>
 
     <section>
@@ -42,5 +48,21 @@
     <footer>
         <p>&copy; rcode3.com</p>
     </footer>
+
+    <script>
+        (function () {
+            var sel = document.getElementById("theme-select");
+            if (!sel) return;
+            function apply(name) {
+                document.documentElement.className = name;
+                try { localStorage.setItem("rcode3-theme", name); } catch (e) {}
+            }
+            var current = document.documentElement.className;
+            for (var i = 0; i < sel.options.length; i++) {
+                if (sel.options[i].value === current) { sel.value = current; break; }
+            }
+            sel.addEventListener("change", function () { apply(sel.value); });
+        })();
+    </script>
 </main>
 {% endblock %}

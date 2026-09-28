@@ -15,6 +15,7 @@ use ui_components::Theme;
 #[template(path = "home.html")]
 struct Home {
     theme: &'static str,
+    themes: Vec<Theme>,
 }
 
 fn render_error(_: askama::Error) -> StatusCode {
@@ -24,6 +25,7 @@ fn render_error(_: askama::Error) -> StatusCode {
 async fn render_home() -> Result<Html<String>, StatusCode> {
     let page = Home {
         theme: Theme::from_env().class_name(),
+        themes: Theme::all().to_vec(),
     };
     Ok(Html(page.render().map_err(render_error)?))
 }

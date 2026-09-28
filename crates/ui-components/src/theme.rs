@@ -1,3 +1,4 @@
+#[derive(Clone, Copy)]
 pub enum Theme {
     GreenOnBlack,
     GreenOnBlackWithAmber,
@@ -34,6 +35,44 @@ impl Theme {
             Theme::BlueOnBlack => "theme_blue_on_black",
             Theme::Tandy400 => "theme_tandy_400",
             Theme::Botho => "theme_botho",
+        }
+    }
+
+    pub fn all() -> &'static [Theme] {
+        &[
+            Theme::GreenOnBlack,
+            Theme::GreenOnBlackWithAmber,
+            Theme::BlackOnLightGray,
+            Theme::BlackOnWhite,
+            Theme::BlackOnWhiteWithRed,
+            Theme::BlackOnWhiteWithGreen,
+            Theme::WhiteOnBlue,
+            Theme::WhiteOnBlueWithGreen,
+            Theme::AmberOnBlack,
+            Theme::AmberOnBlackWithBlue,
+            Theme::BlueOnWhite,
+            Theme::BlueOnBlack,
+            Theme::Tandy400,
+            Theme::Botho,
+        ]
+    }
+
+    pub fn label(self) -> &'static str {
+        match self {
+            Theme::GreenOnBlack => "Green on black",
+            Theme::GreenOnBlackWithAmber => "Green on black (amber)",
+            Theme::BlackOnLightGray => "Black on light gray",
+            Theme::BlackOnWhite => "Black on white",
+            Theme::BlackOnWhiteWithRed => "Black on white (red)",
+            Theme::BlackOnWhiteWithGreen => "Black on white (green)",
+            Theme::WhiteOnBlue => "White on blue",
+            Theme::WhiteOnBlueWithGreen => "White on blue (green)",
+            Theme::AmberOnBlack => "Amber on black",
+            Theme::AmberOnBlackWithBlue => "Amber on black (blue)",
+            Theme::BlueOnWhite => "Blue on white",
+            Theme::BlueOnBlack => "Blue on black",
+            Theme::Tandy400 => "Tandy 400",
+            Theme::Botho => "Botho",
         }
     }
 
