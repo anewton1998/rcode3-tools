@@ -1460,7 +1460,7 @@ dependencies = [
 ]
 
 [[package]]
-name = "rcode3_home"
+name = "rcode3-home"
 version = "0.1.0"
 dependencies = [
  "askama",
