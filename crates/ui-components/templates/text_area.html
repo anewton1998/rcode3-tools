@@ -1,1 +1,2 @@
-<textarea class="rcode3_textarea" name="{{ name }}" rows="{{ rows }}">{{ value }}</textarea>
+<textarea class="rcode3_textarea" name="{{ name }}" rows="{{ rows }}"
+       {% if let Some(placeholder) = placeholder %}placeholder="{{ placeholder }}" {% endif %}>{{ value }}</textarea>

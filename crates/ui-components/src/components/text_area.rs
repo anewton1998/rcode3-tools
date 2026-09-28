@@ -6,6 +6,7 @@ pub struct TextArea<'a> {
     pub name: &'a str,
     pub value: &'a str,
     pub rows: u32,
+    pub placeholder: Option<&'a str>,
 }
 
 impl<'a> TextArea<'a> {
@@ -14,6 +15,7 @@ impl<'a> TextArea<'a> {
             name,
             value: "",
             rows: 4,
+            placeholder: None,
         }
     }
 
@@ -24,6 +26,11 @@ impl<'a> TextArea<'a> {
 
     pub fn rows(mut self, rows: u32) -> Self {
         self.rows = rows;
+        self
+    }
+
+    pub fn placeholder(mut self, placeholder: &'a str) -> Self {
+        self.placeholder = Some(placeholder);
         self
     }
 }
