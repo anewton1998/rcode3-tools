@@ -1,21 +1,20 @@
 use askama::Template;
 use axum::{
+    Router,
     extract::State,
-    http::{header, HeaderValue, StatusCode},
+    http::{HeaderValue, StatusCode, header},
     response::Html,
     routing::{get, post},
-    Router,
 };
 use tower_http::services::ServeDir;
 use tower_http::set_header::SetResponseHeaderLayer;
 use tower_http::trace::{DefaultMakeSpan, DefaultOnResponse, TraceLayer};
 use tracing::Level;
-use ui_components::{Button, Theme, TextInput};
+use ui_components::{TextInput, Theme};
 
 #[derive(Template)]
 #[template(path = "dashboard.html")]
 struct Dashboard {
-    button_html: String,
     search_input_html: String,
     theme: &'static str,
     base: String,
@@ -33,11 +32,7 @@ fn render_error(_: askama::Error) -> StatusCode {
 }
 
 async fn render_dashboard(State(base): State<String>) -> Result<Html<String>, StatusCode> {
-    let api_settings = format!("{base}/api/settings");
     let home_url = std::env::var("HOME_URL").unwrap_or_else(|_| "/".to_string());
-    let button = Button::new("Save Settings")
-        .hx_post(&api_settings)
-        .hx_target("#status-message");
 
     let search_input = TextInput::new("query")
         .placeholder("example.com or 192.0.2.1")
@@ -45,7 +40,6 @@ async fn render_dashboard(State(base): State<String>) -> Result<Html<String>, St
         .enter_activates("#lookup-btn");
 
     let page = Dashboard {
-        button_html: button.render().map_err(render_error)?,
         search_input_html: search_input.render().map_err(render_error)?,
         theme: Theme::from_env().class_name(),
         base,
@@ -74,7 +68,11 @@ fn normalize_base(base: &str) -> String {
 
 pub fn router(base: &str) -> Router {
     let base = normalize_base(base);
-    let url_base = if base == "/" { String::new() } else { base.clone() };
+    let url_base = if base == "/" {
+        String::new()
+    } else {
+        base.clone()
+    };
 
     let cors_origin = std::env::var("CORS_ORIGIN").unwrap_or_else(|_| "*".to_string());
     let cors_methods = std::env::var("CORS_METHODS").unwrap_or_else(|_| "*".to_string());
@@ -102,11 +100,13 @@ pub fn router(base: &str) -> Router {
         ))
         .layer(SetResponseHeaderLayer::overriding(
             header::ACCESS_CONTROL_ALLOW_METHODS,
-            HeaderValue::from_str(&cors_methods).expect("CORS_METHODS must be a valid header value"),
+            HeaderValue::from_str(&cors_methods)
+                .expect("CORS_METHODS must be a valid header value"),
         ))
         .layer(SetResponseHeaderLayer::overriding(
             header::ACCESS_CONTROL_ALLOW_HEADERS,
-            HeaderValue::from_str(&cors_headers).expect("CORS_HEADERS must be a valid header value"),
+            HeaderValue::from_str(&cors_headers)
+                .expect("CORS_HEADERS must be a valid header value"),
         ))
         .layer(
             TraceLayer::new_for_http()
