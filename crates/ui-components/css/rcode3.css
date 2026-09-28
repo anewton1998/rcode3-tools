@@ -755,6 +755,18 @@ rcode3-site-name {
 	background-color: var(--theme-site-name-background-color);
 }
 
+.site_banner {
+	display: flex;
+	align-items: center;
+	gap: .75rem;
+	padding: .75rem 1rem;
+}
+
+.site_logo {
+	height: 2.5rem;
+	width: auto;
+}
+
 .asymmetrical_split_page {
 	display: grid;
 	grid-template-columns: 60% 40%;
