@@ -1,0 +1,9 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32" role="img" aria-label="rcode3">
+  <title>rcode3</title>
+  <rect width="32" height="32" rx="7" fill="#161C26"/>
+  <text x="7.2" y="26.4" font-family="Oswald, Arial Narrow, Helvetica Neue, sans-serif"
+        font-weight="700" font-size="26" fill="#F5B301">3</text>
+  <text x="9.2" y="17.6" font-family="Archivo Black, Arial Black, sans-serif"
+        font-weight="700" font-size="6.2" fill="#E8EEF7">R</text>
+</svg>
