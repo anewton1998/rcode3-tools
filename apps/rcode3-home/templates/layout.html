@@ -4,19 +4,19 @@
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <title>{% block title %}rcode3{% endblock %}</title>
-    <script src="/static/js/theme.js"></script>
-    <link rel="icon" href="/static/images/favicon.ico" sizes="48x48">
-    <link rel="icon" href="/static/images/favicon.svg" type="image/svg+xml">
-    <link rel="icon" type="image/png" sizes="32x32" href="/static/images/favicon-32.png">
-    <link rel="icon" type="image/png" sizes="16x16" href="/static/images/favicon-16.png">
-    <link rel="apple-touch-icon" href="/static/images/apple-touch-icon.png">
-    <link rel="manifest" href="/static/images/site.webmanifest">
+    <script src="{{ base }}/static/js/theme.js"></script>
+    <link rel="icon" href="{{ base }}/static/images/favicon.ico" sizes="48x48">
+    <link rel="icon" href="{{ base }}/static/images/favicon.svg" type="image/svg+xml">
+    <link rel="icon" type="image/png" sizes="32x32" href="{{ base }}/static/images/favicon-32.png">
+    <link rel="icon" type="image/png" sizes="16x16" href="{{ base }}/static/images/favicon-16.png">
+    <link rel="apple-touch-icon" href="{{ base }}/static/images/apple-touch-icon.png">
+    <link rel="manifest" href="{{ base }}/static/images/site.webmanifest">
     <meta name="theme-color" content="#0B1220">
     <meta property="og:title" content="rcode3">
     <meta property="og:description" content="Authoritative RDAP and domain registration data, decoded.">
     <meta property="og:image" content="https://rcode3.com/og-image.png">
     <meta name="twitter:card" content="summary_large_image">
-    <link rel="stylesheet" href="/base.css" />
+    <link rel="stylesheet" href="{{ base }}/base.css" />
 </head>
 <body>
     {% block content %}{% endblock %}

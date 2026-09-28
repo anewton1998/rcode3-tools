@@ -1,0 +1,13 @@
+[package]
+name = "rcode3-gateway"
+version.workspace = true
+edition.workspace = true
+
+[dependencies]
+axum.workspace = true
+dotenvy.workspace = true
+rdap-lookup = { path = "../rdap-lookup" }
+rcode3-home = { path = "../rcode3-home" }
+tokio.workspace = true
+tracing.workspace = true
+tracing-subscriber.workspace = true

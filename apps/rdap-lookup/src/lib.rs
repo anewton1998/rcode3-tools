@@ -1,0 +1,120 @@
+use askama::Template;
+use axum::{
+    extract::State,
+    http::{header, HeaderValue, StatusCode},
+    response::Html,
+    routing::{get, post},
+    Router,
+};
+use tower_http::services::ServeDir;
+use tower_http::set_header::SetResponseHeaderLayer;
+use tower_http::trace::{DefaultMakeSpan, DefaultOnResponse, TraceLayer};
+use tracing::Level;
+use ui_components::{Button, Theme, TextInput};
+
+#[derive(Template)]
+#[template(path = "dashboard.html")]
+struct Dashboard {
+    button_html: String,
+    search_input_html: String,
+    theme: &'static str,
+    base: String,
+}
+
+#[derive(Template)]
+#[template(path = "status.html")]
+struct StatusMessage {
+    text: String,
+}
+
+fn render_error(_: askama::Error) -> StatusCode {
+    StatusCode::INTERNAL_SERVER_ERROR
+}
+
+async fn render_dashboard(State(base): State<String>) -> Result<Html<String>, StatusCode> {
+    let api_settings = format!("{base}/api/settings");
+    let button = Button::new("Save Settings")
+        .hx_post(&api_settings)
+        .hx_target("#status-message");
+
+    let search_input = TextInput::new("query")
+        .placeholder("example.com or 192.0.2.1")
+        .x_model("query")
+        .enter_activates("#lookup-btn");
+
+    let page = Dashboard {
+        button_html: button.render().map_err(render_error)?,
+        search_input_html: search_input.render().map_err(render_error)?,
+        theme: Theme::from_env().class_name(),
+        base,
+    };
+    Ok(Html(page.render().map_err(render_error)?))
+}
+
+async fn save_settings() -> Result<Html<String>, StatusCode> {
+    let fragment = StatusMessage {
+        text: "Settings saved".to_string(),
+    };
+    Ok(Html(fragment.render().map_err(render_error)?))
+}
+
+fn normalize_base(base: &str) -> String {
+    let mut b = base.trim().to_string();
+    if !b.starts_with('/') {
+        b.insert(0, '/');
+    }
+    while b.len() > 1 && b.ends_with('/') {
+        b.pop();
+    }
+    b
+}
+
+pub fn router(base: &str) -> Router {
+    let base = normalize_base(base);
+    let url_base = if base == "/" { String::new() } else { base.clone() };
+
+    let cors_origin = std::env::var("CORS_ORIGIN").unwrap_or_else(|_| "*".to_string());
+    let cors_methods = std::env::var("CORS_METHODS").unwrap_or_else(|_| "*".to_string());
+    let cors_headers = std::env::var("CORS_HEADERS").unwrap_or_else(|_| "*".to_string());
+
+    let app = Router::new()
+        .route("/", get(render_dashboard))
+        .route("/api/settings", post(save_settings))
+        .route(
+            "/base.css",
+            get(|| async {
+                (
+                    [(header::CONTENT_TYPE, "text/css; charset=utf-8")],
+                    ui_components::global_css(),
+                )
+            }),
+        )
+        .nest_service(
+            "/static",
+            ServeDir::new(format!("{}/static", env!("CARGO_MANIFEST_DIR"))),
+        )
+        .layer(SetResponseHeaderLayer::overriding(
+            header::ACCESS_CONTROL_ALLOW_ORIGIN,
+            HeaderValue::from_str(&cors_origin).expect("CORS_ORIGIN must be a valid header value"),
+        ))
+        .layer(SetResponseHeaderLayer::overriding(
+            header::ACCESS_CONTROL_ALLOW_METHODS,
+            HeaderValue::from_str(&cors_methods).expect("CORS_METHODS must be a valid header value"),
+        ))
+        .layer(SetResponseHeaderLayer::overriding(
+            header::ACCESS_CONTROL_ALLOW_HEADERS,
+            HeaderValue::from_str(&cors_headers).expect("CORS_HEADERS must be a valid header value"),
+        ))
+        .layer(
+            TraceLayer::new_for_http()
+                .make_span_with(DefaultMakeSpan::new().level(Level::INFO))
+                .on_response(DefaultOnResponse::new().level(Level::INFO)),
+        )
+        .with_state(url_base);
+
+    if base == "/" {
+        app
+    } else {
+        Router::new().nest(&base, app)
+    }
+}

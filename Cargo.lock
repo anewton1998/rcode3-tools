@@ -1460,6 +1460,19 @@ dependencies = [
 ]
 
 [[package]]
+name = "rcode3-gateway"
+version = "0.1.0"
+dependencies = [
+ "axum",
+ "dotenvy",
+ "rcode3-home",
+ "rdap-lookup",
+ "tokio",
+ "tracing",
+ "tracing-subscriber",
+]
+
+[[package]]
 name = "rcode3-home"
 version = "0.1.0"
 dependencies = [

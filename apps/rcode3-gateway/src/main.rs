@@ -14,13 +14,12 @@ async fn main() {
         Ok(value) => value.parse().expect("PORT must be a valid port number"),
         Err(_) => 8080,
     };
-    let base = std::env::var("BASE_PATH").unwrap_or_else(|_| "/".to_string());
 
-    let app = rcode3_home::router(&base);
+    let app = rcode3_home::router("/").merge(rdap_lookup::router("/rdap-lookup"));
 
     let listener = tokio::net::TcpListener::bind((host.as_str(), port))
         .await
         .unwrap();
-    tracing::info!(%host, port, %base, "listening");
+    tracing::info!(%host, port, "listening (home at /, rdap-lookup at /rdap-lookup)");
     axum::serve(listener, app).await.unwrap();
 }

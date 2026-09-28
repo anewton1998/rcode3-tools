@@ -9,6 +9,7 @@ members = [
     "crates/rdap-wasm",
     "apps/rdap-lookup",
     "apps/rcode3-home",
+    "apps/rcode3-gateway",
 ]
 resolver = "2"
 
