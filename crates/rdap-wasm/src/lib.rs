@@ -96,4 +96,18 @@ mod tests {
         let data = lookup("192.0.2.8").await.expect("ip lookup");
         println!("native ip ok: {}", data.rdap_type);
     }
+
+    #[tokio::test]
+    async fn domain_summary_renders_table() {
+        let data = lookup("example.com").await.expect("domain lookup");
+        let html = custom::domain_summary_html(&data);
+        assert!(
+            html.contains("<table class=\"data_table\">"),
+            "expected an rdap table, got: {html}"
+        );
+        assert!(
+            html.contains("<th scope=\"row\">Name</th>"),
+            "missing Name row: {html}"
+        );
+    }
 }
