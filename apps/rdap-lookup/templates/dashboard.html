@@ -23,7 +23,7 @@
                             catch (e) { error = String(e); result = ''; }
                             busy = false;
                         }">Lookup</button>
-                <span class="progress_wrap" x-show="busy">{{ progress_bar_html|safe }}</span>
+                <span x-show="busy">{{ progress_bar_html|safe }}</span>
                 <span class="error_text" x-show="error" x-text="error"></span>
             </section>
 
