@@ -37,6 +37,11 @@ pub fn referral_urls(data: &ResponseData) -> Vec<String> {
     }
 }
 
+/// A horizontal-rule divider inserted before each appended referral result.
+pub fn referral_divider() -> String {
+    "<hr class=\"data_divider\">".to_string()
+}
+
 /// A short inline note shown when a "related" referral fails to load.
 pub fn referral_error_note(url: &str, e: &RdapClientError) -> String {
     format!(

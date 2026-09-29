@@ -70,6 +70,7 @@ pub async fn rdap_lookup_html(query: &str) -> Result<String, JsValue> {
 
     let mut html = custom::render_response_html(&data);
     for url in custom::referral_urls(&data) {
+        html.push_str(&custom::referral_divider());
         match lookup_url(&url).await {
             Ok(referral) => html.push_str(&custom::render_response_html(&referral)),
             Err(e) => html.push_str(&custom::referral_error_note(&url, &e)),
@@ -117,6 +118,15 @@ mod tests {
         assert!(
             !urls.is_empty(),
             "expected at least one related referral link for icann.org"
+        );
+    }
+
+    #[tokio::test]
+    async fn native_domain_lookup_html_includes_referral_divider() {
+        let html = rdap_lookup_html("icann.org").await.expect("lookup html");
+        assert!(
+            html.contains("data_divider"),
+            "expected a referral divider between results: {html}"
         );
     }
 

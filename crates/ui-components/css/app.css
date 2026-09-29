@@ -176,3 +176,9 @@
 	flex-direction: column;
 	gap: .3rem;
 }
+
+.data_divider {
+	border: none;
+	border-top: 1px solid var(--theme-primary-color);
+	margin: 1rem 0;
+}
