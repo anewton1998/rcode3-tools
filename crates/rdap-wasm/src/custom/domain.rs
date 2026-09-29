@@ -68,7 +68,7 @@ mod tests {
         let domain: Domain = serde_json::from_str(json).unwrap();
         let html = domain_html(&domain);
         assert!(html.contains("data_title"), "{html}");
-        assert!(html.contains("<td>Name</td>"), "{html}");
+        assert!(html.contains("<td class=\"data_key\">Name</td>"), "{html}");
         assert!(html.contains("example.com"), "{html}");
         assert!(html.contains(">Status<"), "{html}");
         assert!(html.contains("Nameservers"), "{html}");

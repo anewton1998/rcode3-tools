@@ -153,6 +153,9 @@ mod tests {
             html.contains("<table class=\"data_table\">"),
             "expected an rdap table, got: {html}"
         );
-        assert!(html.contains("<td>Name</td>"), "missing Name row: {html}");
+        assert!(
+            html.contains("<td class=\"data_key\">Name</td>"),
+            "missing Name row: {html}"
+        );
     }
 }

@@ -120,6 +120,7 @@
 
 .data_table {
 	border-collapse: collapse;
+	width: fit-content;
 }
 
 .data_table th,
@@ -137,6 +138,14 @@
 	font-weight: var(--theme-primary-font-weight);
 	color: var(--theme-primary-color);
 	text-decoration: underline;
+}
+
+.data_table .data_key {
+	text-align: right;
+}
+
+.data_table .data_key::after {
+	content: " : ";
 }
 
 .data_table td {
