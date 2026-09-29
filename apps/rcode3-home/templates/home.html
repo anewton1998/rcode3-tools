@@ -7,12 +7,6 @@
     <header class="site_banner">
         <img src="{{ base }}/static/images/logo-1024.png" alt="rcode3 logo" class="site_logo">
         <rcode3-site-name>rcode3 tools</rcode3-site-name>
-        <label for="theme-select">Theme</label>
-        <select id="theme-select" class="rcode3_input_text">
-            {% for t in themes %}
-            <option value="{{ t.class_name() }}">{{ t.label() }}</option>
-            {% endfor %}
-        </select>
     </header>
 
     <section>
@@ -43,6 +37,18 @@
             <p>
                 Clean, scriptable data for registry, hosting, and abuse teams who need answers fast.
             </p>
+        </div>
+    </section>
+
+    <section>
+        <div class="normal_panel">
+            <h3>Theme</h3>
+            <label for="theme-select">Select a color theme</label>
+            <select id="theme-select" class="rcode3_input_text">
+                {% for t in themes %}
+                <option value="{{ t.class_name() }}">{{ t.label() }}</option>
+                {% endfor %}
+            </select>
         </div>
     </section>
 
