@@ -139,37 +139,37 @@
 	color: var(--theme-primary-color);
 }
 
-.rdap_result {
+.data_result {
 	display: flex;
 	flex-direction: column;
 	gap: 1rem;
 }
 
-.rdap_type_title {
+.data_title {
 	margin: 0;
 	font-size: 1.05em;
 	font-weight: var(--theme-primary-font-weight);
 	color: var(--theme-primary-color);
 }
 
-.rdap_section {
+.data_section {
 	display: flex;
 	flex-direction: column;
 	gap: .3rem;
 }
 
-.rdap_section h3 {
+.data_section h3 {
 	margin: 0;
 	font-size: .95em;
 	font-weight: var(--theme-primary-font-weight);
 }
 
-.rdap_list {
+.data_list {
 	margin: 0;
 	padding-left: 1.2em;
 }
 
-.rdap_entity {
+.indented_section {
 	border-left: thin solid var(--theme-sub-section-background-color);
 	padding-left: .7em;
 	display: flex;

@@ -21,7 +21,7 @@ pub(crate) fn append_common(parts: &mut Vec<String>, oc: &ObjectCommon) {
                 .join("");
             parts.push(section(
                 "Status",
-                format!("<ul class=\"rdap_list\">{}</ul>", bullets),
+                format!("<ul class=\"data_list\">{}</ul>", bullets),
             ));
         }
     }
@@ -59,7 +59,7 @@ pub(crate) fn append_common(parts: &mut Vec<String>, oc: &ObjectCommon) {
             let label = entity_label(ent);
             let mut body = vec![title("Entity", label.as_deref())];
             append_entity_body(&mut body, ent);
-            let block = div("rdap_entity", body);
+            let block = div("indented_section", body);
             if !block.is_empty() {
                 blocks.push(block);
             }
@@ -111,7 +111,7 @@ pub(crate) fn nameserver_list(nameservers: &[Nameserver]) -> String {
     if items.is_empty() {
         return String::new();
     }
-    format!("<ul class=\"rdap_list\">{}</ul>", items.join(""))
+    format!("<ul class=\"data_list\">{}</ul>", items.join(""))
 }
 
 fn events_table(events: &Events) -> String {

@@ -1,6 +1,6 @@
 /// Wraps the rendered parts in a top-level results container.
 pub(crate) fn render(parts: Vec<String>) -> String {
-    div("rdap_result", parts)
+    div("data_result", parts)
 }
 
 /// Joins non-empty parts into a classed `<div>`; empty when nothing to show.
@@ -20,11 +20,11 @@ pub(crate) fn div(cls: &str, parts: Vec<String>) -> String {
 pub(crate) fn title(heading: &str, name: Option<&str>) -> String {
     match name {
         Some(n) => format!(
-            "<h2 class=\"rdap_type_title\">{} {}</h2>",
+            "<h2 class=\"data_title\">{} {}</h2>",
             escape(heading),
             mono(n)
         ),
-        None => format!("<h2 class=\"rdap_type_title\">{}</h2>", escape(heading)),
+        None => format!("<h2 class=\"data_title\">{}</h2>", escape(heading)),
     }
 }
 
@@ -34,7 +34,7 @@ pub(crate) fn section(title: &str, body: String) -> String {
         return String::new();
     }
     format!(
-        "<section class=\"rdap_section\"><h3 class=\"info_text\">{}</h3>{}</section>",
+        "<section class=\"data_section\"><h3 class=\"info_text\">{}</h3>{}</section>",
         escape(title),
         body
     )
