@@ -37,23 +37,19 @@ pub fn get_bootstrap_url() -> String {
     current_bootstrap_url()
 }
 
-async fn lookup(query: &str) -> Result<ResponseData, String> {
+async fn lookup(query: &str) -> Result<ResponseData, RdapClientError> {
     let config = ClientConfig::builder().exts_list(HashSet::new()).build();
-    let client = create_client(&config).map_err(|e| e.to_string())?;
-    let query_type = query
-        .parse::<QueryType>()
-        .map_err(|_| format!("invalid RDAP query: {query}"))?;
+    let client = create_client(&config)?;
+    let query_type = query.parse::<QueryType>()?;
     let base_url = current_bootstrap_url();
-    rdap_request(&base_url, &query_type, &client)
-        .await
-        .map_err(|e| e.to_string())
+    rdap_request(&base_url, &query_type, &client).await
 }
 
 /// Runs an RDAP lookup in the browser and resolves with the full parsed
 /// response as a JS object.
 #[wasm_bindgen]
 pub async fn rdap_lookup(query: &str) -> Result<JsValue, JsValue> {
-    let data = lookup(query).await.map_err(|e| JsValue::from_str(&e))?;
+    let data = lookup(query).await.map_err(|e| JsValue::from_str(&custom::describe_error(&e)))?;
     serde_wasm_bindgen::to_value(&data).map_err(|e| JsValue::from_str(&e.to_string()))
 }
 
@@ -61,7 +57,10 @@ pub async fn rdap_lookup(query: &str) -> Result<JsValue, JsValue> {
 /// custom client-side logic in `custom.rs`.
 #[wasm_bindgen]
 pub async fn rdap_lookup_html(query: &str) -> Result<String, JsValue> {
-    let data = lookup(query).await.map_err(|e| JsValue::from_str(&e))?;
+    let data = lookup(query).await.map_err(|e| JsValue::from_str(&custom::describe_error(&e)))?;
+    if data.http_data.status_code >= 400 {
+        return Err(JsValue::from_str(&custom::http_error_message(&data)));
+    }
     Ok(custom::domain_summary_html(&data))
 }
 
