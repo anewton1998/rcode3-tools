@@ -54,6 +54,7 @@ label {
 	--theme-site-name-action-color: whitesmoke;
 
 	--theme-primary-color: rgb(0, 204, 0);
+	--theme-accent-color: rgb(0, 204, 0);
 	--theme-info-color: rgb(52, 151, 251);
 	--theme-action-color: whitesmoke;
 	--theme-disabled-color: gray;
@@ -89,6 +90,7 @@ label {
 	--theme-site-name-action-color: whitesmoke;
 
 	--theme-primary-color: rgb(0, 204, 0);
+	--theme-accent-color: rgb(204, 167, 0);
 	--theme-info-color: rgb(52, 151, 251);
 	--theme-action-color: whitesmoke;
 	--theme-disabled-color: gray;
@@ -124,6 +126,7 @@ label {
 	--theme-site-name-action-color: #005eff;
 
 	--theme-primary-color: black;
+	--theme-accent-color: black;
 	--theme-info-color: darkgreen;
 	--theme-action-color: blue;
 	--theme-disabled-color: gray;
@@ -159,6 +162,7 @@ label {
 	--theme-site-name-action-color: #005eff;
 
 	--theme-primary-color: black;
+	--theme-accent-color: black;
 	--theme-info-color: darkgreen;
 	--theme-action-color: blue;
 	--theme-disabled-color: gray;
@@ -194,6 +198,7 @@ label {
 	--theme-site-name-action-color: #f1cfcf;
 
 	--theme-primary-color: black;
+	--theme-accent-color: #7f0101;
 	--theme-info-color: darkgreen;
 	--theme-action-color: blue;
 	--theme-disabled-color: gray;
@@ -229,6 +234,7 @@ label {
 	--theme-site-name-action-color: #931539;
 
 	--theme-primary-color: black;
+	--theme-accent-color: rgb(22, 181, 22);
 	--theme-info-color: darkgreen;
 	--theme-action-color: blue;
 	--theme-disabled-color: gray;
@@ -264,6 +270,7 @@ label {
 	--theme-site-name-action-color: rgb(2, 161, 17);
 
 	--theme-primary-color: white;
+	--theme-accent-color: white;
 	--theme-info-color: rgb(14, 201, 235);
 	--theme-action-color: rgb(0, 250, 33);
 	--theme-disabled-color: gray;
@@ -299,6 +306,7 @@ label {
 	--theme-site-name-action-color: black;
 
 	--theme-primary-color: white;
+	--theme-accent-color: #8B8B00;
 	--theme-info-color: rgb(14, 201, 235);
 	--theme-action-color: rgb(0, 250, 33);
 	--theme-disabled-color: gray;
@@ -334,6 +342,7 @@ label {
 	--theme-site-name-action-color: whitesmoke;
 
 	--theme-primary-color: rgb(204, 167, 0);
+	--theme-accent-color: rgb(204, 167, 0);
 	--theme-info-color: rgb(52, 151, 251);
 	--theme-action-color: whitesmoke;
 	--theme-disabled-color: gray;
@@ -369,6 +378,7 @@ label {
 	--theme-site-name-action-color: whitesmoke;
 
 	--theme-primary-color: rgb(204, 167, 0);
+	--theme-accent-color: #002DF7;
 	--theme-info-color: rgb(52, 151, 251);
 	--theme-action-color: whitesmoke;
 	--theme-disabled-color: gray;
@@ -404,6 +414,7 @@ label {
 	--theme-site-name-action-color: #9bd2f6;
 
 	--theme-primary-color: blue;
+	--theme-accent-color: blue;
 	--theme-info-color: darkgreen;
 	--theme-action-color: black;
 	--theme-disabled-color: gray;
@@ -439,6 +450,7 @@ label {
 	--theme-site-name-action-color: whitesmoke;
 
 	--theme-primary-color: rgb(52, 151, 251);
+	--theme-accent-color: rgb(52, 151, 251);
 	--theme-info-color: rgb(204, 167, 0);
 	--theme-action-color: whitesmoke;
 	--theme-disabled-color: gray;
@@ -474,6 +486,7 @@ label {
 	--theme-site-name-action-color: whitesmoke;
 
 	--theme-primary-color: whitesmoke;
+	--theme-accent-color: rgb(0, 107, 182);
 	--theme-info-color: rgb(18, 181, 22);
 	--theme-action-color: rgb(122, 167, 251);
 	--theme-disabled-color: gray;
@@ -509,6 +522,7 @@ label {
 	--theme-site-name-action-color: rgb(2, 161, 17);
 
 	--theme-primary-color: white;
+	--theme-accent-color: #2C001E;
 	--theme-info-color: #678e11;
 	--theme-action-color: #5c8ece;
 	--theme-disabled-color: gray;

@@ -39,6 +39,10 @@
 	font-family: var(--theme-panel-header-font-family);
 	font-size: var(--theme-panel-header-font-size);
 	font-weight: var(--theme-panel-header-font-weight);
+	text-decoration: underline;
+	text-decoration-color: var(--theme-accent-color);
+	text-decoration-thickness: .15rem;
+	text-underline-offset: .35rem;
 }
 
 /* top row: input + help, even 50/50 split */
@@ -179,6 +183,6 @@
 
 .data_divider {
 	border: none;
-	border-top: 1px solid var(--theme-primary-color);
+	border-top: 1px solid var(--theme-accent-color);
 	margin: 1rem 0;
 }
