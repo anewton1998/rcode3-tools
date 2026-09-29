@@ -119,7 +119,6 @@
 }
 
 .data_table {
-	width: 100%;
 	border-collapse: collapse;
 }
 
@@ -137,6 +136,7 @@
 	width: 12rem;
 	font-weight: var(--theme-primary-font-weight);
 	color: var(--theme-primary-color);
+	text-decoration: underline;
 }
 
 .data_table td {
@@ -152,8 +152,10 @@
 .data_title {
 	margin: 0;
 	font-size: 1.05em;
-	font-weight: var(--theme-primary-font-weight);
-	color: var(--theme-primary-color);
+	font-weight: var(--theme-info-font-weight);
+	color: var(--theme-info-color);
+	text-decoration: underline;
+	text-decoration-color: var(--theme-info-color);
 }
 
 .data_section {

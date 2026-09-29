@@ -55,7 +55,9 @@ async fn lookup_url(url: &str) -> Result<ResponseData, RdapClientError> {
 /// response as a JS object.
 #[wasm_bindgen]
 pub async fn rdap_lookup(query: &str) -> Result<JsValue, JsValue> {
-    let data = lookup(query).await.map_err(|e| JsValue::from_str(&custom::describe_error(&e)))?;
+    let data = lookup(query)
+        .await
+        .map_err(|e| JsValue::from_str(&custom::describe_error(&e)))?;
     serde_wasm_bindgen::to_value(&data).map_err(|e| JsValue::from_str(&e.to_string()))
 }
 
@@ -63,7 +65,9 @@ pub async fn rdap_lookup(query: &str) -> Result<JsValue, JsValue> {
 /// custom client-side logic in `custom.rs`.
 #[wasm_bindgen]
 pub async fn rdap_lookup_html(query: &str) -> Result<String, JsValue> {
-    let data = lookup(query).await.map_err(|e| JsValue::from_str(&custom::describe_error(&e)))?;
+    let data = lookup(query)
+        .await
+        .map_err(|e| JsValue::from_str(&custom::describe_error(&e)))?;
     if data.http_data.status_code >= 400 {
         return Err(JsValue::from_str(&custom::http_error_message(&data)));
     }
@@ -138,9 +142,6 @@ mod tests {
             html.contains("<table class=\"data_table\">"),
             "expected an rdap table, got: {html}"
         );
-        assert!(
-            html.contains("<th scope=\"row\">Name</th>"),
-            "missing Name row: {html}"
-        );
+        assert!(html.contains("<td>Name</td>"), "missing Name row: {html}");
     }
 }

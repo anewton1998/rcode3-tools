@@ -53,7 +53,7 @@ pub(crate) fn kv_table(rows: &[String]) -> String {
 
 /// A single key/value table row.
 pub(crate) fn row(label: &str, value: &str) -> String {
-    format!("<tr><th scope=\"row\">{label}</th><td>{value}</td></tr>")
+    format!("<tr><td>{label}</td><td>{value}</td></tr>")
 }
 
 /// Wraps a value in monospace styling.
