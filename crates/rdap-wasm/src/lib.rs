@@ -61,7 +61,7 @@ pub async fn rdap_lookup_html(query: &str) -> Result<String, JsValue> {
     if data.http_data.status_code >= 400 {
         return Err(JsValue::from_str(&custom::http_error_message(&data)));
     }
-    Ok(custom::domain_summary_html(&data))
+    Ok(custom::render_response_html(&data))
 }
 
 #[cfg(test)]
@@ -87,7 +87,7 @@ mod tests {
     async fn native_lookup_domain() {
         let data = lookup("example.com").await.expect("domain lookup");
         println!("native domain ok: {}", data.rdap_type);
-        println!("{}", custom::domain_summary_html(&data));
+        println!("{}", custom::render_response_html(&data));
     }
 
     #[tokio::test]
@@ -99,7 +99,7 @@ mod tests {
     #[tokio::test]
     async fn domain_summary_renders_table() {
         let data = lookup("example.com").await.expect("domain lookup");
-        let html = custom::domain_summary_html(&data);
+        let html = custom::render_response_html(&data);
         assert!(
             html.contains("<table class=\"data_table\">"),
             "expected an rdap table, got: {html}"

@@ -1510,6 +1510,7 @@ dependencies = [
  "icann-rdap-common",
  "js-sys",
  "serde-wasm-bindgen",
+ "serde_json",
  "tokio",
  "wasm-bindgen",
  "wasm-bindgen-futures",
