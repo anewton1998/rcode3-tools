@@ -45,6 +45,12 @@ async fn lookup(query: &str) -> Result<ResponseData, RdapClientError> {
     rdap_request(&base_url, &query_type, &client).await
 }
 
+async fn lookup_url(url: &str) -> Result<ResponseData, RdapClientError> {
+    let config = ClientConfig::builder().exts_list(HashSet::new()).build();
+    let client = create_client(&config)?;
+    rdap_url_request(url, &client).await
+}
+
 /// Runs an RDAP lookup in the browser and resolves with the full parsed
 /// response as a JS object.
 #[wasm_bindgen]
@@ -61,7 +67,15 @@ pub async fn rdap_lookup_html(query: &str) -> Result<String, JsValue> {
     if data.http_data.status_code >= 400 {
         return Err(JsValue::from_str(&custom::http_error_message(&data)));
     }
-    Ok(custom::render_response_html(&data))
+
+    let mut html = custom::render_response_html(&data);
+    for url in custom::referral_urls(&data) {
+        match lookup_url(&url).await {
+            Ok(referral) => html.push_str(&custom::render_response_html(&referral)),
+            Err(e) => html.push_str(&custom::referral_error_note(&url, &e)),
+        }
+    }
+    Ok(html)
 }
 
 #[cfg(test)]
@@ -94,6 +108,16 @@ mod tests {
     async fn native_lookup_ip() {
         let data = lookup("192.0.2.8").await.expect("ip lookup");
         println!("native ip ok: {}", data.rdap_type);
+    }
+
+    #[tokio::test]
+    async fn native_domain_related_referral_is_followed() {
+        let data = lookup("icann.org").await.expect("domain lookup");
+        let urls = custom::referral_urls(&data);
+        assert!(
+            !urls.is_empty(),
+            "expected at least one related referral link for icann.org"
+        );
     }
 
     #[tokio::test]

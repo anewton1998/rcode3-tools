@@ -29,6 +29,28 @@ pub(crate) fn domain_html(domain: &Domain) -> String {
     render(parts)
 }
 
+/// Extracts de-duplicated "related" referral URLs from a domain's links,
+/// preferring each link's href and falling back to its value.
+pub(crate) fn related_link_urls(domain: &Domain) -> Vec<String> {
+    let mut urls: Vec<String> = Vec::new();
+    if let Some(links) = &domain.object_common.links {
+        for link in links.iter() {
+            if !link.is_relation("related") {
+                continue;
+            }
+            let url = match (link.href.as_deref(), link.value.as_deref()) {
+                (Some(href), _) if !href.is_empty() => href.to_string(),
+                (_, Some(value)) if !value.is_empty() => value.to_string(),
+                _ => continue,
+            };
+            if !urls.contains(&url) {
+                urls.push(url);
+            }
+        }
+    }
+    urls
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -58,5 +80,29 @@ mod tests {
             .find("<li>clientHold</li>")
             .expect("clientHold status bullet: {html}");
         assert!(active_pos < hold_pos, "status should be sorted: {html}");
+    }
+
+    #[test]
+    fn domain_related_link_urls_are_extracted_and_deduped() {
+        let json = r#"{
+            "objectClassName": "domain",
+            "handle": "EXAMPLE-COM",
+            "ldhName": "example.com",
+            "links": [
+                {"rel": "self", "href": "https://rdap.example/domain/example.com"},
+                {"rel": "related", "href": "https://rdap.example/entity/299"},
+                {"rel": "related", "value": "https://rdap.example/entity/300"},
+                {"rel": "related", "href": "https://rdap.example/entity/299"}
+            ]
+        }"#;
+        let domain: Domain = serde_json::from_str(json).unwrap();
+        let urls = related_link_urls(&domain);
+        assert_eq!(
+            urls,
+            vec![
+                "https://rdap.example/entity/299".to_string(),
+                "https://rdap.example/entity/300".to_string()
+            ]
+        );
     }
 }
