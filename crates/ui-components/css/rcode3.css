@@ -765,6 +765,7 @@ rcode3-site-name {
 }
 
 .site_logo {
+	display: block;
 	height: 2.5rem;
 	width: auto;
 }
