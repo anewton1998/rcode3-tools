@@ -5,6 +5,7 @@ use std::sync::Mutex;
 
 use icann_rdap_client::prelude::*;
 use icann_rdap_client::rdap::ResponseData;
+use icann_rdap_client::rdap::redacted::simplify_redactions;
 use wasm_bindgen::JsValue;
 use wasm_bindgen::prelude::*;
 
@@ -42,13 +43,23 @@ async fn lookup(query: &str) -> Result<ResponseData, RdapClientError> {
     let client = create_client(&config)?;
     let query_type = query.parse::<QueryType>()?;
     let base_url = current_bootstrap_url();
-    rdap_request(&base_url, &query_type, &client).await
+    rdap_request(&base_url, &query_type, &client)
+        .await
+        .map(|res| ResponseData {
+            rdap: simplify_redactions(res.rdap, false),
+            ..res
+        })
 }
 
 async fn lookup_url(url: &str) -> Result<ResponseData, RdapClientError> {
     let config = ClientConfig::builder().exts_list(HashSet::new()).build();
     let client = create_client(&config)?;
-    rdap_url_request(url, &client).await
+    rdap_url_request(url, &client)
+        .await
+        .map(|res| ResponseData {
+            rdap: simplify_redactions(res.rdap, false),
+            ..res
+        })
 }
 
 /// Runs an RDAP lookup in the browser and resolves with the full parsed
