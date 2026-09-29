@@ -39,7 +39,7 @@ mod tests {
             "objectClassName": "domain",
             "handle": "EXAMPLE-COM",
             "ldhName": "example.com",
-            "status": ["active"],
+            "status": ["clientHold", "active"],
             "events": [{"eventAction": "registration", "eventDate": "2000-01-01T00:00:00Z"}],
             "nameservers": [{"objectClassName": "nameserver", "ldhName": "ns1.example.com"}]
         }"#;
@@ -50,5 +50,13 @@ mod tests {
         assert!(html.contains("example.com"), "{html}");
         assert!(html.contains(">Status<"), "{html}");
         assert!(html.contains("Nameservers"), "{html}");
+        // Status values are rendered as a sorted bullet list.
+        let active_pos = html
+            .find("<li>active</li>")
+            .expect("active status bullet: {html}");
+        let hold_pos = html
+            .find("<li>clientHold</li>")
+            .expect("clientHold status bullet: {html}");
+        assert!(active_pos < hold_pos, "status should be sorted: {html}");
     }
 }

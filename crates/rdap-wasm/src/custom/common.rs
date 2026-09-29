@@ -7,15 +7,21 @@ use super::html::{div, escape, kv_table, mono, row, section, str_opt, title};
 /// nested entities) to `parts`. Reused by every object-class renderer.
 pub(crate) fn append_common(parts: &mut Vec<String>, oc: &ObjectCommon) {
     if let Some(status) = oc.status.as_ref() {
-        let items = status
+        let mut items: Vec<String> = status
             .vec()
             .iter()
             .map(|s| escape(&s.to_string()))
-            .collect::<Vec<_>>();
+            .collect();
+        items.sort();
         if !items.is_empty() {
+            let bullets = items
+                .iter()
+                .map(|item| format!("<li>{}</li>", item))
+                .collect::<Vec<_>>()
+                .join("");
             parts.push(section(
                 "Status",
-                kv_table(&[row("Status", &items.join(", "))]),
+                format!("<ul class=\"rdap_list\">{}</ul>", bullets),
             ));
         }
     }
