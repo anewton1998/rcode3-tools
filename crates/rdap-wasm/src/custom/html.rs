@@ -34,7 +34,7 @@ pub(crate) fn section(title: &str, body: String) -> String {
         return String::new();
     }
     format!(
-        "<section class=\"rdap_section\"><h3>{}</h3>{}</section>",
+        "<section class=\"rdap_section\"><h3 class=\"info_text\">{}</h3>{}</section>",
         escape(title),
         body
     )
