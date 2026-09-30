@@ -112,9 +112,15 @@ pub(crate) fn contact_rows(contact: &Contact) -> String {
     if !emails.is_empty() {
         rows.push(row("Email", &escape(&emails.join(", "))));
     }
-    let phones: Vec<String> = contact.phones().iter().map(|p| p.phone.clone()).collect();
-    if !phones.is_empty() {
-        rows.push(row("Phone", &escape(&phones.join(", "))));
+    for p in contact.phones() {
+        let type_str = p
+            .contexts
+            .as_ref()
+            .or(p.features.as_ref())
+            .and_then(|types| types.first())
+            .map(|t| format!(" ({})", escape(t)))
+            .unwrap_or_default();
+        rows.push(row("Phone", &format!("{}{}", escape(&p.phone), type_str)));
     }
     kv_table(&rows)
 }
