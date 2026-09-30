@@ -162,7 +162,9 @@ fn events_table(events: &Events) -> String {
         if !actor.is_empty() {
             has_actor = true;
         }
-        rows.push((action, date, actor, local));
+        let is_expiring_soon =
+            is_event_expiring_soon(e.event_action.as_ref(), e.event_date.as_ref());
+        rows.push((action, date, actor, local, is_expiring_soon));
     }
     if rows.is_empty() {
         return String::new();
@@ -170,14 +172,41 @@ fn events_table(events: &Events) -> String {
     if has_actor {
         format!(
             "<table class=\"data_table\"><thead><tr><th>Action</th><th>Local</th><th>Date</th><th>Actor</th></tr></thead><tbody>{}</tbody></table>",
-            rows.iter().map(|(a, d, ac, l)| format!("<tr><td>{}</td><td>{}</td><td class=\"mono_text\">{}</td><td>{}</td></tr>", a, l, d, ac)).collect::<Vec<_>>().join("")
+            rows.iter().map(|(a, d, ac, l, exp)| {
+                let row_class = if *exp { " class=\"warning_text\"" } else { "" };
+                format!("<tr{}><td>{}</td><td>{}</td><td class=\"mono_text\">{}</td><td>{}</td></tr>", row_class, a, l, d, ac)
+            }).collect::<Vec<_>>().join("")
         )
     } else {
         format!(
             "<table class=\"data_table\"><thead><tr><th>Action</th><th>Local</th><th>Date</th></tr></thead><tbody>{}</tbody></table>",
-            rows.iter().map(|(a, d, _, l)| format!("<tr><td>{}</td><td>{}</td><td class=\"mono_text\">{}</td></tr>", a, l, d)).collect::<Vec<_>>().join("")
+            rows.iter().map(|(a, d, _, l, exp)| {
+                let row_class = if *exp { " class=\"warning_text\"" } else { "" };
+                format!("<tr{}><td>{}</td><td>{}</td><td class=\"mono_text\">{}</td></tr>", row_class, a, l, d)
+            }).collect::<Vec<_>>().join("")
         )
     }
+}
+
+fn is_event_expiring_soon(action: Option<&String>, date: Option<&String>) -> bool {
+    let action_lower = action
+        .as_ref()
+        .map(|a| a.to_lowercase())
+        .unwrap_or_default();
+    if !action_lower.contains("expiration") {
+        return false;
+    }
+    let date_str = match date {
+        Some(s) => s,
+        None => return false,
+    };
+    let dt = match DateTime::parse_from_rfc3339(date_str) {
+        Ok(dt) => dt.with_timezone(&chrono::Local),
+        Err(_) => return false,
+    };
+    let now = chrono::Local::now();
+    let diff = (dt - now).num_days();
+    diff < 30 && diff >= 0
 }
 
 fn parse_event_date_to_local(date: Option<&String>) -> String {
@@ -534,5 +563,49 @@ mod tests {
         assert!(html.contains("registration"), "{html}");
         assert!(html.contains("<th>Actor</th>"), "{html}");
         assert!(html.contains("Example Corp"), "{html}");
+    }
+
+    #[test]
+    fn is_event_expiring_soon_returns_true_for_near_future() {
+        let future_date = "2026-10-01T00:00:00Z";
+        assert!(super::is_event_expiring_soon(
+            Some(&"expiration".to_string()),
+            Some(&future_date.to_string())
+        ));
+    }
+
+    #[test]
+    fn is_event_expiring_soon_returns_false_for_past() {
+        let past_date = "2020-01-01T00:00:00Z";
+        assert!(!super::is_event_expiring_soon(
+            Some(&"expiration".to_string()),
+            Some(&past_date.to_string())
+        ));
+    }
+
+    #[test]
+    fn is_event_expiring_soon_returns_false_for_far_future() {
+        let far_future_date = "2027-01-01T00:00:00Z";
+        assert!(!super::is_event_expiring_soon(
+            Some(&"expiration".to_string()),
+            Some(&far_future_date.to_string())
+        ));
+    }
+
+    #[test]
+    fn is_event_expiring_soon_returns_false_for_non_expiration() {
+        let future_date = "2026-10-01T00:00:00Z";
+        assert!(!super::is_event_expiring_soon(
+            Some(&"registration".to_string()),
+            Some(&future_date.to_string())
+        ));
+    }
+
+    #[test]
+    fn is_event_expiring_soon_returns_false_for_no_date() {
+        assert!(!super::is_event_expiring_soon(
+            Some(&"expiration".to_string()),
+            None
+        ));
     }
 }
