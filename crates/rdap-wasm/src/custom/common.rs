@@ -132,6 +132,7 @@ pub(crate) fn nameserver_list(nameservers: &[Nameserver]) -> String {
 
 fn events_table(events: &Events) -> String {
     let mut rows = Vec::new();
+    let mut has_actor = false;
     for e in events.iter() {
         let action = str_opt(e.event_action.as_ref());
         let date = str_opt(e.event_date.as_ref());
@@ -139,17 +140,25 @@ fn events_table(events: &Events) -> String {
         if action.is_empty() && date.is_empty() && actor.is_empty() {
             continue;
         }
-        rows.push(format!(
-            "<tr><td>{action}</td><td>{date}</td><td>{actor}</td></tr>"
-        ));
+        if !actor.is_empty() {
+            has_actor = true;
+        }
+        rows.push((action, date, actor));
     }
     if rows.is_empty() {
         return String::new();
     }
-    format!(
-        "<table class=\"data_table\"><thead><tr><th>Action</th><th>Date</th><th>Actor</th></tr></thead><tbody>{}</tbody></table>",
-        rows.join("")
-    )
+    if has_actor {
+        format!(
+            "<table class=\"data_table\"><thead><tr><th>Action</th><th>Date</th><th>Actor</th></tr></thead><tbody>{}</tbody></table>",
+            rows.iter().map(|(a, d, ac)| format!("<tr><td>{}</td><td>{}</td><td>{}</td></tr>", a, d, ac)).collect::<Vec<_>>().join("")
+        )
+    } else {
+        format!(
+            "<table class=\"data_table\"><thead><tr><th>Action</th><th>Date</th></tr></thead><tbody>{}</tbody></table>",
+            rows.iter().map(|(a, d, _)| format!("<tr><td>{}</td><td>{}</td></tr>", a, d)).collect::<Vec<_>>().join("")
+        )
+    }
 }
 
 fn links_table(links: &Links) -> String {
@@ -463,5 +472,36 @@ mod tests {
         let domain: Domain = serde_json::from_str(json).unwrap();
         let html = domain_html(&domain, "rdap.example");
         assert!(!html.contains("Conformance Claims"), "{html}");
+    }
+
+    #[test]
+    fn events_table_without_actor() {
+        let json = r#"{
+            "objectClassName": "domain",
+            "ldhName": "example.com",
+            "status": ["active"],
+            "events": [{"eventAction": "registration", "eventDate": "2000-01-01T00:00:00Z"}]
+        }"#;
+        let domain: Domain = serde_json::from_str(json).unwrap();
+        let html = domain_html(&domain, "rdap.example");
+        assert!(html.contains("Events"), "{html}");
+        assert!(html.contains("registration"), "{html}");
+        assert!(!html.contains("<th>Actor</th>"), "{html}");
+    }
+
+    #[test]
+    fn events_table_with_actor() {
+        let json = r#"{
+            "objectClassName": "domain",
+            "ldhName": "example.com",
+            "status": ["active"],
+            "events": [{"eventAction": "registration", "eventDate": "2000-01-01T00:00:00Z", "eventActor": "Example Corp"}]
+        }"#;
+        let domain: Domain = serde_json::from_str(json).unwrap();
+        let html = domain_html(&domain, "rdap.example");
+        assert!(html.contains("Events"), "{html}");
+        assert!(html.contains("registration"), "{html}");
+        assert!(html.contains("<th>Actor</th>"), "{html}");
+        assert!(html.contains("Example Corp"), "{html}");
     }
 }
