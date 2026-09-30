@@ -19,13 +19,23 @@ pub(crate) fn append_common(
         let mut items: Vec<String> = status
             .vec()
             .iter()
-            .map(|s| escape(&s.to_string()))
+            .map(|s| {
+                let escaped = escape(&s.to_string());
+                let lower = s.to_string().to_lowercase();
+                if lower == "pending delete" || lower == "pending transfer" {
+                    format!("<li class=\"error_text\">{}</li>", escaped)
+                } else if lower == "inactive" || lower == "client hold" || lower == "server hold" {
+                    format!("<li class=\"warning_text\">{}</li>", escaped)
+                } else {
+                    format!("<li>{}</li>", escaped)
+                }
+            })
             .collect();
         items.sort();
         if !items.is_empty() {
             let bullets = items
                 .iter()
-                .map(|item| format!("<li>{}</li>", item))
+                .map(|item| item.to_string())
                 .collect::<Vec<_>>()
                 .join("");
             parts.push(section(
