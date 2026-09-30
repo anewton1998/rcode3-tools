@@ -13,6 +13,21 @@ pub(crate) fn network_html(net: &Network, authority: &str) -> String {
     if let Some(e) = net.end_address.as_deref() {
         summary.push(row("End Address", &mono(e)));
     }
+    if let Some(cidrs) = &net.cidr0_cidrs {
+        for cidr in cidrs {
+            if let Some(prefix) = &cidr.prefix {
+                let prefix_str = match prefix {
+                    icann_rdap_common::prelude::Cidr0CidrPrefix::V4Prefix(v) => v.to_string(),
+                    icann_rdap_common::prelude::Cidr0CidrPrefix::V6Prefix(v) => v.to_string(),
+                };
+                if let Some(length) = &cidr.length {
+                    summary.push(row("CIDR", &mono(&format!("{}/{}", prefix_str, length))));
+                } else {
+                    summary.push(row("CIDR", &mono(&prefix_str)));
+                }
+            }
+        }
+    }
     if let Some(v) = net.ip_version.as_deref() {
         summary.push(row("IP Version", &escape(v)));
     }
