@@ -15,12 +15,13 @@ pub use error::{describe_error, http_error_message};
 
 /// Renders the results-panel HTML for any supported RDAP response.
 pub fn render_response_html(data: &ResponseData) -> String {
+    let authority = data.http_data.host();
     match &data.rdap {
-        RdapResponse::Domain(domain) => domain::domain_html(domain),
-        RdapResponse::Nameserver(nameserver) => nameserver::nameserver_html(nameserver),
-        RdapResponse::Network(network) => network::network_html(network),
-        RdapResponse::Autnum(autnum) => autnum::autnum_html(autnum),
-        RdapResponse::Entity(entity) => entity::entity_html(entity),
+        RdapResponse::Domain(domain) => domain::domain_html(domain, authority),
+        RdapResponse::Nameserver(nameserver) => nameserver::nameserver_html(nameserver, authority),
+        RdapResponse::Network(network) => network::network_html(network, authority),
+        RdapResponse::Autnum(autnum) => autnum::autnum_html(autnum, authority),
+        RdapResponse::Entity(entity) => entity::entity_html(entity, authority),
         other => format!(
             "<span class=\"info_text\">{}</span>",
             html::escape(&other.to_string())

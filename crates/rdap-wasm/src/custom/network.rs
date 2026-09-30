@@ -3,7 +3,7 @@ use icann_rdap_common::prelude::Network;
 use super::common::append_common;
 use super::html::{escape, kv_table, mono, render, row, title};
 
-pub(crate) fn network_html(net: &Network) -> String {
+pub(crate) fn network_html(net: &Network, authority: &str) -> String {
     let oc = &net.object_common;
     let label = net.name.as_deref().or(net.start_address.as_deref());
     let mut summary = Vec::new();
@@ -27,7 +27,7 @@ pub(crate) fn network_html(net: &Network) -> String {
     }
 
     let mut parts = vec![title("Network", label), kv_table(&summary)];
-    append_common(&mut parts, oc, &net.common);
+    append_common(&mut parts, authority, oc, &net.common);
     render(parts)
 }
 
@@ -47,7 +47,7 @@ mod tests {
             "type": "allocation"
         }"#;
         let net: Network = serde_json::from_str(json).unwrap();
-        let html = network_html(&net);
+        let html = network_html(&net, "rdap.example");
         assert!(html.contains("Start Address"), "{html}");
         assert!(html.contains("192.0.2.0"), "{html}");
         assert!(html.contains("TEST-NET-1"), "{html}");

@@ -6,8 +6,13 @@ use super::entity::append_entity_body;
 use super::html::{div, escape, kv_table, mono, row, section, str_opt, title};
 
 /// Appends the shared object-common sections (status, events, links, redacted,
-/// nested entities, notices) to `parts`. Reused by every object-class renderer.
-pub(crate) fn append_common(parts: &mut Vec<String>, oc: &ObjectCommon, common: &Common) {
+/// nested entities, notices, conformance) to `parts`. Reused by every object-class renderer.
+pub(crate) fn append_common(
+    parts: &mut Vec<String>,
+    authority: &str,
+    oc: &ObjectCommon,
+    common: &Common,
+) {
     if let Some(status) = oc.status.as_ref() {
         let mut items: Vec<String> = status
             .vec()
@@ -63,7 +68,7 @@ pub(crate) fn append_common(parts: &mut Vec<String>, oc: &ObjectCommon, common: 
         for ent in entities.iter() {
             let label = entity_label(ent);
             let mut body = vec![title("Entity", label.as_deref())];
-            append_entity_body(&mut body, ent);
+            append_entity_body(&mut body, ent, authority);
             let block = div("indented_section", body);
             if !block.is_empty() {
                 blocks.push(block);
@@ -73,6 +78,9 @@ pub(crate) fn append_common(parts: &mut Vec<String>, oc: &ObjectCommon, common: 
     }
     if let Some(notices) = common.notices.as_ref() {
         parts.push(section("Service Notices", notices_list(notices)));
+    }
+    if let Some(conformance) = common.rdap_conformance.as_ref() {
+        parts.push(conformance_section(authority, conformance));
     }
 }
 
@@ -301,6 +309,20 @@ fn notices_list(notices: &[Notice]) -> String {
     html
 }
 
+fn conformance_section(
+    authority: &str,
+    conformance: &[icann_rdap_common::prelude::Extension],
+) -> String {
+    let items: Vec<String> = conformance
+        .iter()
+        .map(|e| format!("<li class=\"mono_text\">{}</li>", escape(&e.0)))
+        .collect();
+    section(
+        &format!("Conformance Claims in Response from {}", escape(authority)),
+        format!("<ul class=\"data_list\">{}</ul>", items.join("")),
+    )
+}
+
 #[cfg(test)]
 mod tests {
     use crate::custom::domain::domain_html;
@@ -314,7 +336,7 @@ mod tests {
             "remarks": [{"title": "Note", "description": ["Hello world"]}]
         }"#;
         let domain: Domain = serde_json::from_str(json).unwrap();
-        let html = domain_html(&domain);
+        let html = domain_html(&domain, "rdap.example");
         assert!(html.contains("Remarks"), "{html}");
         assert!(html.contains("Note"), "{html}");
         assert!(html.contains("Hello world"), "{html}");
@@ -330,7 +352,7 @@ mod tests {
             "remarks": [{"type": "glossary", "description": ["See docs"]}]
         }"#;
         let domain: Domain = serde_json::from_str(json).unwrap();
-        let html = domain_html(&domain);
+        let html = domain_html(&domain, "rdap.example");
         assert!(html.contains("Remarks"), "{html}");
         assert!(html.contains("glossary"), "{html}");
         assert!(html.contains("See docs"), "{html}");
@@ -346,7 +368,7 @@ mod tests {
             "status": ["active"]
         }"#;
         let domain: Domain = serde_json::from_str(json).unwrap();
-        let html = domain_html(&domain);
+        let html = domain_html(&domain, "rdap.example");
         assert!(!html.contains("Remarks"), "{html}");
     }
 
@@ -359,7 +381,7 @@ mod tests {
             "notices": [{"title": "Terms", "description": ["Accept terms to use"]}]
         }"#;
         let domain: Domain = serde_json::from_str(json).unwrap();
-        let html = domain_html(&domain);
+        let html = domain_html(&domain, "rdap.example");
         assert!(html.contains("Service Notices"), "{html}");
         assert!(html.contains("Terms"), "{html}");
         assert!(html.contains("Accept terms to use"), "{html}");
@@ -376,7 +398,7 @@ mod tests {
             "notices": [{"type": "legal", "description": ["Legal notice"]}]
         }"#;
         let domain: Domain = serde_json::from_str(json).unwrap();
-        let html = domain_html(&domain);
+        let html = domain_html(&domain, "rdap.example");
         assert!(html.contains("Service Notices"), "{html}");
         assert!(html.contains("legal"), "{html}");
         assert!(html.contains("Legal notice"), "{html}");
@@ -392,7 +414,7 @@ mod tests {
             "status": ["active"]
         }"#;
         let domain: Domain = serde_json::from_str(json).unwrap();
-        let html = domain_html(&domain);
+        let html = domain_html(&domain, "rdap.example");
         assert!(!html.contains("Service Notices"), "{html}");
     }
 
@@ -409,8 +431,37 @@ mod tests {
             }]
         }"#;
         let domain: Domain = serde_json::from_str(json).unwrap();
-        let html = domain_html(&domain);
+        let html = domain_html(&domain, "rdap.example");
         assert!(html.contains("Service Notices"), "{html}");
         assert!(html.contains("https://example.com/terms"), "{html}");
+    }
+
+    #[test]
+    fn conformance_section_rendered_with_claims() {
+        let json = r#"{
+            "objectClassName": "domain",
+            "ldhName": "example.com",
+            "status": ["active"],
+            "rdapConformance": ["rdap_profile-1.0"]
+        }"#;
+        let domain: Domain = serde_json::from_str(json).unwrap();
+        let html = domain_html(&domain, "rdap.example");
+        assert!(
+            html.contains("Conformance Claims in Response from rdap.example"),
+            "{html}"
+        );
+        assert!(html.contains("rdap_profile-1.0"), "{html}");
+    }
+
+    #[test]
+    fn no_conformance_no_section() {
+        let json = r#"{
+            "objectClassName": "domain",
+            "ldhName": "example.com",
+            "status": ["active"]
+        }"#;
+        let domain: Domain = serde_json::from_str(json).unwrap();
+        let html = domain_html(&domain, "rdap.example");
+        assert!(!html.contains("Conformance Claims"), "{html}");
     }
 }

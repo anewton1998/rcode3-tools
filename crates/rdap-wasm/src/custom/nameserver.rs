@@ -3,7 +3,7 @@ use icann_rdap_common::prelude::Nameserver;
 use super::common::append_common;
 use super::html::{escape, kv_table, mono, push_unicode, render, row, title};
 
-pub(crate) fn nameserver_html(ns: &Nameserver) -> String {
+pub(crate) fn nameserver_html(ns: &Nameserver, authority: &str) -> String {
     let oc = &ns.object_common;
     let mut summary = Vec::new();
     if let Some(name) = ns.ldh_name.as_deref() {
@@ -44,7 +44,7 @@ pub(crate) fn nameserver_html(ns: &Nameserver) -> String {
         title("Nameserver", ns.ldh_name.as_deref()),
         kv_table(&summary),
     ];
-    append_common(&mut parts, oc, &ns.common);
+    append_common(&mut parts, authority, oc, &ns.common);
     render(parts)
 }
 
@@ -62,7 +62,7 @@ mod tests {
             "ipAddresses": {"v4": ["192.0.2.1"], "v6": ["2001:db8::1"]}
         }"#;
         let ns: Nameserver = serde_json::from_str(json).unwrap();
-        let html = nameserver_html(&ns);
+        let html = nameserver_html(&ns, "rdap.example");
         assert!(html.contains("IPv4"), "{html}");
         assert!(html.contains("192.0.2.1"), "{html}");
         assert!(html.contains("IPv6"), "{html}");

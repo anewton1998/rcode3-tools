@@ -3,7 +3,7 @@ use icann_rdap_common::prelude::Autnum;
 use super::common::append_common;
 use super::html::{escape, kv_table, mono, render, row, title};
 
-pub(crate) fn autnum_html(a: &Autnum) -> String {
+pub(crate) fn autnum_html(a: &Autnum, authority: &str) -> String {
     let oc = &a.object_common;
     let start = a.start_autnum.as_ref().and_then(|n| n.as_u32());
     let end = a.end_autnum.as_ref().and_then(|n| n.as_u32());
@@ -30,7 +30,7 @@ pub(crate) fn autnum_html(a: &Autnum) -> String {
     }
 
     let mut parts = vec![title("Autnum", label.as_deref()), kv_table(&summary)];
-    append_common(&mut parts, oc, &a.common);
+    append_common(&mut parts, authority, oc, &a.common);
     render(parts)
 }
 
@@ -50,7 +50,7 @@ mod tests {
             "country": "US"
         }"#;
         let a: Autnum = serde_json::from_str(json).unwrap();
-        let html = autnum_html(&a);
+        let html = autnum_html(&a, "rdap.example");
         assert!(html.contains("Start AS"), "{html}");
         assert!(html.contains("AS15169"), "{html}");
         assert!(html.contains("GOOGLE"), "{html}");

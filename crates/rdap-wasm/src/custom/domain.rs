@@ -3,7 +3,7 @@ use icann_rdap_common::prelude::Domain;
 use super::common::{append_common, nameserver_list};
 use super::html::{kv_table, mono, push_unicode, render, row, section, title};
 
-pub(crate) fn domain_html(domain: &Domain) -> String {
+pub(crate) fn domain_html(domain: &Domain, authority: &str) -> String {
     let oc = &domain.object_common;
     let mut summary = Vec::new();
     if let Some(name) = domain.ldh_name.as_deref() {
@@ -25,7 +25,7 @@ pub(crate) fn domain_html(domain: &Domain) -> String {
     if let Some(nameservers) = &domain.nameservers {
         parts.push(section("Nameservers", nameserver_list(nameservers)));
     }
-    append_common(&mut parts, oc, &domain.common);
+    append_common(&mut parts, authority, oc, &domain.common);
     render(parts)
 }
 
@@ -66,7 +66,7 @@ mod tests {
             "nameservers": [{"objectClassName": "nameserver", "ldhName": "ns1.example.com"}]
         }"#;
         let domain: Domain = serde_json::from_str(json).unwrap();
-        let html = domain_html(&domain);
+        let html = domain_html(&domain, "rdap.example");
         assert!(html.contains("data_title"), "{html}");
         assert!(html.contains("<td class=\"data_key\">Name</td>"), "{html}");
         assert!(html.contains("example.com"), "{html}");

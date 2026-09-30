@@ -3,15 +3,15 @@ use icann_rdap_common::prelude::Entity;
 use super::common::{append_common, contact_rows, entity_label};
 use super::html::{escape, kv_table, mono, render, row, section, str_opt, title};
 
-pub(crate) fn entity_html(entity: &Entity) -> String {
+pub(crate) fn entity_html(entity: &Entity, authority: &str) -> String {
     let label = entity_label(entity);
     let mut parts = vec![title("Entity", label.as_deref())];
-    append_entity_body(&mut parts, entity);
+    append_entity_body(&mut parts, entity, authority);
     render(parts)
 }
 
 /// Appends an entity's summary, contact details, and shared sections.
-pub(crate) fn append_entity_body(parts: &mut Vec<String>, entity: &Entity) {
+pub(crate) fn append_entity_body(parts: &mut Vec<String>, entity: &Entity, authority: &str) {
     let oc = &entity.object_common;
     let mut summary = Vec::new();
     let roles = entity.roles().join(", ");
@@ -41,7 +41,7 @@ pub(crate) fn append_entity_body(parts: &mut Vec<String>, entity: &Entity) {
     if let Some(contact) = entity.contact() {
         parts.push(section("Contact", contact_rows(&contact)));
     }
-    append_common(parts, oc, &entity.common);
+    append_common(parts, authority, oc, &entity.common);
 }
 
 #[cfg(test)]
@@ -57,7 +57,7 @@ mod tests {
             "publicIds": [{"type": "IANA ID", "identifier": "299"}]
         }"#;
         let entity: Entity = serde_json::from_str(json).unwrap();
-        let html = entity_html(&entity);
+        let html = entity_html(&entity, "rdap.example");
         assert!(html.contains("Roles"), "{html}");
         assert!(html.contains("registrar"), "{html}");
         assert!(html.contains("299"), "{html}");
