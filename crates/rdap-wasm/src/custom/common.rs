@@ -1,3 +1,5 @@
+use chrono::DateTime;
+
 use icann_rdap_common::prelude::{
     Common, Contact, Entity, Events, Links, Nameserver, Notice, ObjectCommon, Remarks,
 };
@@ -137,28 +139,41 @@ fn events_table(events: &Events) -> String {
         let action = str_opt(e.event_action.as_ref());
         let date = str_opt(e.event_date.as_ref());
         let actor = str_opt(e.event_actor.as_ref());
-        if action.is_empty() && date.is_empty() && actor.is_empty() {
+        let local = parse_event_date_to_local(e.event_date.as_ref());
+        if action.is_empty() && date.is_empty() && actor.is_empty() && local.is_empty() {
             continue;
         }
         if !actor.is_empty() {
             has_actor = true;
         }
-        rows.push((action, date, actor));
+        rows.push((action, date, actor, local));
     }
     if rows.is_empty() {
         return String::new();
     }
     if has_actor {
         format!(
-            "<table class=\"data_table\"><thead><tr><th>Action</th><th>Date</th><th>Actor</th></tr></thead><tbody>{}</tbody></table>",
-            rows.iter().map(|(a, d, ac)| format!("<tr><td>{}</td><td>{}</td><td>{}</td></tr>", a, d, ac)).collect::<Vec<_>>().join("")
+            "<table class=\"data_table\"><thead><tr><th>Action</th><th>Local</th><th>Date</th><th>Actor</th></tr></thead><tbody>{}</tbody></table>",
+            rows.iter().map(|(a, d, ac, l)| format!("<tr><td>{}</td><td>{}</td><td class=\"mono_text\">{}</td><td>{}</td></tr>", a, l, d, ac)).collect::<Vec<_>>().join("")
         )
     } else {
         format!(
-            "<table class=\"data_table\"><thead><tr><th>Action</th><th>Date</th></tr></thead><tbody>{}</tbody></table>",
-            rows.iter().map(|(a, d, _)| format!("<tr><td>{}</td><td>{}</td></tr>", a, d)).collect::<Vec<_>>().join("")
+            "<table class=\"data_table\"><thead><tr><th>Action</th><th>Local</th><th>Date</th></tr></thead><tbody>{}</tbody></table>",
+            rows.iter().map(|(a, d, _, l)| format!("<tr><td>{}</td><td>{}</td><td class=\"mono_text\">{}</td></tr>", a, l, d)).collect::<Vec<_>>().join("")
         )
     }
+}
+
+fn parse_event_date_to_local(date: Option<&String>) -> String {
+    let date_str = match date {
+        Some(s) => s,
+        None => return String::new(),
+    };
+    let dt = match DateTime::parse_from_rfc3339(date_str) {
+        Ok(dt) => dt.with_timezone(&chrono::Local),
+        Err(_) => return date_str.to_string(),
+    };
+    dt.format("%d %b %Y at %l:%M %P").to_string()
 }
 
 fn links_table(links: &Links) -> String {
