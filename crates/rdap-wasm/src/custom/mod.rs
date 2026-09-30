@@ -13,20 +13,36 @@ use icann_rdap_common::prelude::RdapResponse;
 
 pub use error::{describe_error, http_error_message};
 
+/// Renders the "Response" data table section.
+pub fn render_response_banner(data: &ResponseData) -> String {
+    let host = data.http_data.host();
+    let time = data.http_data.received();
+    let time_str = time.to_rfc3339();
+    format!(
+        "<table class=\"data_table\"><tbody><tr><td class=\"data_key\">Host</td><td class=\"mono_text\">{}</td></tr><tr><td class=\"data_key\">Received</td><td class=\"mono_text\">{}</td></tr></tbody></table>",
+        html::escape(host),
+        html::escape(&time_str)
+    )
+}
+
 /// Renders the results-panel HTML for any supported RDAP response.
 pub fn render_response_html(data: &ResponseData) -> String {
     let authority = data.http_data.host();
+    let mut parts = vec![render_response_banner(data)];
     match &data.rdap {
-        RdapResponse::Domain(domain) => domain::domain_html(domain, authority),
-        RdapResponse::Nameserver(nameserver) => nameserver::nameserver_html(nameserver, authority),
-        RdapResponse::Network(network) => network::network_html(network, authority),
-        RdapResponse::Autnum(autnum) => autnum::autnum_html(autnum, authority),
-        RdapResponse::Entity(entity) => entity::entity_html(entity, authority),
-        other => format!(
+        RdapResponse::Domain(domain) => parts.push(domain::domain_html(domain, authority)),
+        RdapResponse::Nameserver(nameserver) => {
+            parts.push(nameserver::nameserver_html(nameserver, authority))
+        }
+        RdapResponse::Network(network) => parts.push(network::network_html(network, authority)),
+        RdapResponse::Autnum(autnum) => parts.push(autnum::autnum_html(autnum, authority)),
+        RdapResponse::Entity(entity) => parts.push(entity::entity_html(entity, authority)),
+        other => parts.push(format!(
             "<span class=\"info_text\">{}</span>",
             html::escape(&other.to_string())
-        ),
+        )),
     }
+    parts.join("")
 }
 
 /// Returns one level of "related" referral URLs for a domain response
