@@ -1,4 +1,6 @@
-use icann_rdap_common::prelude::{Contact, Entity, Events, Links, Nameserver, ObjectCommon};
+use icann_rdap_common::prelude::{
+    Contact, Entity, Events, Links, Nameserver, ObjectCommon, Remarks,
+};
 
 use super::entity::append_entity_body;
 use super::html::{div, escape, kv_table, mono, row, section, str_opt, title};
@@ -24,6 +26,9 @@ pub(crate) fn append_common(parts: &mut Vec<String>, oc: &ObjectCommon) {
                 format!("<ul class=\"data_list\">{}</ul>", bullets),
             ));
         }
+    }
+    if let Some(remarks) = oc.remarks.as_ref() {
+        parts.push(section("Remarks", remarks_list(remarks)));
     }
     if let Some(events) = oc.events.as_ref() {
         parts.push(section("Events", events_table(events)));
@@ -161,4 +166,120 @@ fn links_table(links: &Links) -> String {
         "<table class=\"data_table\"><thead><tr><th>Relation</th><th>Type</th><th>URL</th></tr></thead><tbody>{}</tbody></table>",
         rows.join("")
     )
+}
+
+fn remarks_list(remarks: &Remarks) -> String {
+    let mut html = String::new();
+    for r in remarks.iter() {
+        let title = r.title.as_deref().map(escape).unwrap_or_default();
+        let r#type = r.nr_type.as_deref().map(escape);
+        let desc = r
+            .description
+            .as_ref()
+            .map(|d| {
+                let items: Vec<String> = Vec::from(d);
+                let filtered: Vec<String> = items
+                    .iter()
+                    .filter(|i| !i.trim().is_empty())
+                    .cloned()
+                    .collect();
+                let mut groups: Vec<String> = Vec::new();
+                let mut current_group = Vec::new();
+                for item in &filtered {
+                    let escaped = escape(item);
+                    if !ends_with_punctuation(item) {
+                        current_group.push(escaped);
+                    } else {
+                        current_group.push(escaped);
+                        groups.push(current_group.join("<br>"));
+                        current_group = Vec::new();
+                    }
+                }
+                if !current_group.is_empty() {
+                    groups.push(current_group.join("<br>"));
+                }
+                groups
+                    .iter()
+                    .map(|g| format!("<p class=\"data_unstructured_text\">{}</p>", g))
+                    .collect::<Vec<_>>()
+                    .join("")
+            })
+            .unwrap_or_default();
+        if title.is_empty() && r#type.is_none() && desc.is_empty() {
+            continue;
+        }
+        let heading_text = if let Some(t) = &r#type {
+            format!("{} ({})", title, mono(t))
+        } else {
+            title
+        };
+        let heading_class = if r#type.is_some() {
+            "warning_text"
+        } else {
+            "info_text"
+        };
+        html.push_str(&format!(
+            "<div class=\"indented_section\"><h2 class=\"{}\">{}</h2>{}</div>",
+            heading_class, heading_text, desc
+        ));
+    }
+    html
+}
+
+fn ends_with_punctuation(s: &str) -> bool {
+    let trimmed = s.trim();
+    trimmed.ends_with('.')
+        || trimmed.ends_with('!')
+        || trimmed.ends_with('?')
+        || trimmed.ends_with(';')
+}
+
+#[cfg(test)]
+mod tests {
+    use crate::custom::domain::domain_html;
+    use icann_rdap_common::prelude::Domain;
+
+    #[test]
+    fn remarks_rendered_with_title() {
+        let json = r#"{
+            "objectClassName": "domain",
+            "ldhName": "example.com",
+            "remarks": [{"title": "Note", "description": ["Hello world"]}]
+        }"#;
+        let domain: Domain = serde_json::from_str(json).unwrap();
+        let html = domain_html(&domain);
+        assert!(html.contains("Remarks"), "{html}");
+        assert!(html.contains("Note"), "{html}");
+        assert!(html.contains("Hello world"), "{html}");
+        assert!(html.contains("<h2"), "{html}");
+        assert!(html.contains("info_text"), "{html}");
+    }
+
+    #[test]
+    fn remark_falls_back_to_type() {
+        let json = r#"{
+            "objectClassName": "domain",
+            "ldhName": "example.com",
+            "remarks": [{"type": "glossary", "description": ["See docs"]}]
+        }"#;
+        let domain: Domain = serde_json::from_str(json).unwrap();
+        let html = domain_html(&domain);
+        assert!(html.contains("Remarks"), "{html}");
+        assert!(html.contains("glossary"), "{html}");
+        assert!(html.contains("See docs"), "{html}");
+        assert!(html.contains("mono_text"), "{html}");
+        assert!(html.contains("warning_text"), "{html}");
+    }
+
+    #[test]
+    fn no_remarks_no_section() {
+        let json = r#"{
+            "objectClassName": "domain",
+            "ldhName": "example.com",
+            "status": ["active"]
+        }"#;
+        let domain: Domain = serde_json::from_str(json).unwrap();
+        let html = domain_html(&domain);
+        assert!(!html.contains("Remarks"), "{html}");
+    }
 }
