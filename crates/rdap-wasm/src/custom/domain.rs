@@ -25,7 +25,7 @@ pub(crate) fn domain_html(domain: &Domain) -> String {
     if let Some(nameservers) = &domain.nameservers {
         parts.push(section("Nameservers", nameserver_list(nameservers)));
     }
-    append_common(&mut parts, oc);
+    append_common(&mut parts, oc, &domain.common);
     render(parts)
 }
 

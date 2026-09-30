@@ -30,7 +30,7 @@ pub(crate) fn autnum_html(a: &Autnum) -> String {
     }
 
     let mut parts = vec![title("Autnum", label.as_deref()), kv_table(&summary)];
-    append_common(&mut parts, oc);
+    append_common(&mut parts, oc, &a.common);
     render(parts)
 }
 

@@ -44,7 +44,7 @@ pub(crate) fn nameserver_html(ns: &Nameserver) -> String {
         title("Nameserver", ns.ldh_name.as_deref()),
         kv_table(&summary),
     ];
-    append_common(&mut parts, oc);
+    append_common(&mut parts, oc, &ns.common);
     render(parts)
 }
 

@@ -1,13 +1,13 @@
 use icann_rdap_common::prelude::{
-    Contact, Entity, Events, Links, Nameserver, ObjectCommon, Remarks,
+    Common, Contact, Entity, Events, Links, Nameserver, Notice, ObjectCommon, Remarks,
 };
 
 use super::entity::append_entity_body;
 use super::html::{div, escape, kv_table, mono, row, section, str_opt, title};
 
 /// Appends the shared object-common sections (status, events, links, redacted,
-/// nested entities) to `parts`. Reused by every object-class renderer.
-pub(crate) fn append_common(parts: &mut Vec<String>, oc: &ObjectCommon) {
+/// nested entities, notices) to `parts`. Reused by every object-class renderer.
+pub(crate) fn append_common(parts: &mut Vec<String>, oc: &ObjectCommon, common: &Common) {
     if let Some(status) = oc.status.as_ref() {
         let mut items: Vec<String> = status
             .vec()
@@ -70,6 +70,9 @@ pub(crate) fn append_common(parts: &mut Vec<String>, oc: &ObjectCommon) {
             }
         }
         parts.push(section("Entities", blocks.join("")));
+    }
+    if let Some(notices) = common.notices.as_ref() {
+        parts.push(section("Service Notices", notices_list(notices)));
     }
 }
 
@@ -234,6 +237,70 @@ fn ends_with_punctuation(s: &str) -> bool {
         || trimmed.ends_with(';')
 }
 
+fn notices_list(notices: &[Notice]) -> String {
+    let mut html = String::new();
+    for notice in notices.iter() {
+        let nr = &notice.0;
+        let title = nr.title.as_deref().map(escape).unwrap_or_default();
+        let r#type = nr.nr_type.as_deref().map(escape);
+        let desc = nr
+            .description
+            .as_ref()
+            .map(|d| {
+                let items: Vec<String> = Vec::from(d);
+                let filtered: Vec<String> = items
+                    .iter()
+                    .filter(|i| !i.trim().is_empty())
+                    .cloned()
+                    .collect();
+                let mut groups: Vec<String> = Vec::new();
+                let mut current_group = Vec::new();
+                for item in &filtered {
+                    let escaped = escape(item);
+                    if !ends_with_punctuation(item) {
+                        current_group.push(escaped);
+                    } else {
+                        current_group.push(escaped);
+                        groups.push(current_group.join("<br>"));
+                        current_group = Vec::new();
+                    }
+                }
+                if !current_group.is_empty() {
+                    groups.push(current_group.join("<br>"));
+                }
+                groups
+                    .iter()
+                    .map(|g| format!("<p class=\"data_unstructured_text\">{}</p>", g))
+                    .collect::<Vec<_>>()
+                    .join("")
+            })
+            .unwrap_or_default();
+        if title.is_empty() && r#type.is_none() && desc.is_empty() {
+            continue;
+        }
+        let heading_text = if let Some(t) = &r#type {
+            format!("{} ({})", title, mono(t))
+        } else {
+            title
+        };
+        let heading_class = if r#type.is_some() {
+            "warning_text"
+        } else {
+            "info_text"
+        };
+        let links_html = if let Some(links) = &nr.links {
+            links_table(links)
+        } else {
+            String::new()
+        };
+        html.push_str(&format!(
+            "<div class=\"indented_section\"><h2 class=\"{}\">{}</h2>{}{}</div>",
+            heading_class, heading_text, desc, links_html
+        ));
+    }
+    html
+}
+
 #[cfg(test)]
 mod tests {
     use crate::custom::domain::domain_html;
@@ -281,5 +348,69 @@ mod tests {
         let domain: Domain = serde_json::from_str(json).unwrap();
         let html = domain_html(&domain);
         assert!(!html.contains("Remarks"), "{html}");
+    }
+
+    #[test]
+    fn notices_rendered_with_title() {
+        let json = r#"{
+            "objectClassName": "domain",
+            "ldhName": "example.com",
+            "status": ["active"],
+            "notices": [{"title": "Terms", "description": ["Accept terms to use"]}]
+        }"#;
+        let domain: Domain = serde_json::from_str(json).unwrap();
+        let html = domain_html(&domain);
+        assert!(html.contains("Service Notices"), "{html}");
+        assert!(html.contains("Terms"), "{html}");
+        assert!(html.contains("Accept terms to use"), "{html}");
+        assert!(html.contains("<h2"), "{html}");
+        assert!(html.contains("info_text"), "{html}");
+    }
+
+    #[test]
+    fn notice_falls_back_to_type() {
+        let json = r#"{
+            "objectClassName": "domain",
+            "ldhName": "example.com",
+            "status": ["active"],
+            "notices": [{"type": "legal", "description": ["Legal notice"]}]
+        }"#;
+        let domain: Domain = serde_json::from_str(json).unwrap();
+        let html = domain_html(&domain);
+        assert!(html.contains("Service Notices"), "{html}");
+        assert!(html.contains("legal"), "{html}");
+        assert!(html.contains("Legal notice"), "{html}");
+        assert!(html.contains("mono_text"), "{html}");
+        assert!(html.contains("warning_text"), "{html}");
+    }
+
+    #[test]
+    fn no_notices_no_section() {
+        let json = r#"{
+            "objectClassName": "domain",
+            "ldhName": "example.com",
+            "status": ["active"]
+        }"#;
+        let domain: Domain = serde_json::from_str(json).unwrap();
+        let html = domain_html(&domain);
+        assert!(!html.contains("Service Notices"), "{html}");
+    }
+
+    #[test]
+    fn notices_render_with_links() {
+        let json = r#"{
+            "objectClassName": "domain",
+            "ldhName": "example.com",
+            "status": ["active"],
+            "notices": [{
+                "title": "Terms",
+                "description": ["Accept terms"],
+                "links": [{"rel": "terms", "href": "https://example.com/terms"}]
+            }]
+        }"#;
+        let domain: Domain = serde_json::from_str(json).unwrap();
+        let html = domain_html(&domain);
+        assert!(html.contains("Service Notices"), "{html}");
+        assert!(html.contains("https://example.com/terms"), "{html}");
     }
 }

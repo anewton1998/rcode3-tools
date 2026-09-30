@@ -41,7 +41,7 @@ pub(crate) fn append_entity_body(parts: &mut Vec<String>, entity: &Entity) {
     if let Some(contact) = entity.contact() {
         parts.push(section("Contact", contact_rows(&contact)));
     }
-    append_common(parts, oc);
+    append_common(parts, oc, &entity.common);
 }
 
 #[cfg(test)]

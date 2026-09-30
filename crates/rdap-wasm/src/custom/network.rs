@@ -27,7 +27,7 @@ pub(crate) fn network_html(net: &Network) -> String {
     }
 
     let mut parts = vec![title("Network", label), kv_table(&summary)];
-    append_common(&mut parts, oc);
+    append_common(&mut parts, oc, &net.common);
     render(parts)
 }
 
