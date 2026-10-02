@@ -11,18 +11,19 @@
 
     <div class="dashboard_body" x-data="{
         query: '', result: '', error: '', busy: false, queryTime: '',
-        status() { return this.busy ? 'Looking up...' : this.error ? 'Error' : this.result ? 'Complete' : 'Idle'; }
+        status() { return this.busy ? 'Looking up...' : this.error ? 'Error' : this.result ? 'Complete' : 'Idle'; },
+        async lookup() {
+            this.busy = true; this.error = ''; this.queryTime = new Date().toLocaleString();
+            try { this.result = await window.RdapClient.rdap_lookup_html(this.query); }
+            catch (e) { this.error = String(e); this.result = ''; }
+            this.busy = false;
+        }
     }">
         <div class="dash_row dash_row_top">
             <section class="panel panel_input">
                 {{ search_input_html|safe }}
                 <button id="lookup-btn" class="rcode3_button" :disabled="busy"
-                        @click="async () => {
-                            busy = true; error = ''; queryTime = new Date().toLocaleString();
-                            try { result = await window.RdapClient.rdap_lookup_html(query); }
-                            catch (e) { error = String(e); result = ''; }
-                            busy = false;
-                        }">Lookup</button>
+                        @click="lookup()">Lookup</button>
                 <span x-show="busy">{{ progress_bar_html|safe }}</span>
                 <span class="error_text" x-show="error" x-text="error"></span>
             </section>

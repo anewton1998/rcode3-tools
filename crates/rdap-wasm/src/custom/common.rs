@@ -140,7 +140,13 @@ pub(crate) fn nameserver_list(nameservers: &[Nameserver]) -> String {
     let items = nameservers
         .iter()
         .filter_map(|ns| ns.ldh_name.as_deref())
-        .map(|n| format!("<li>{}</li>", mono(n)))
+        .map(|n| {
+            format!(
+                "<li><span class=\"in_page_action\" x-on:click=\"query = '{}'; lookup()\">{}</span></li>",
+                escape(n),
+                mono(n)
+            )
+        })
         .collect::<Vec<_>>();
     if items.is_empty() {
         return String::new();
