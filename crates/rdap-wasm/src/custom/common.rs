@@ -5,7 +5,7 @@ use icann_rdap_common::prelude::{
 };
 
 use super::entity::append_entity_body;
-use super::html::{div, escape, kv_table, mono, row, section, str_opt, title};
+use super::html::{div, escape, kv_table, lookup_action, mono, row, section, str_opt, title};
 
 /// Appends the shared object-common sections (status, events, links, redacted,
 /// nested entities, notices, conformance) to `parts`. Reused by every object-class renderer.
@@ -140,13 +140,7 @@ pub(crate) fn nameserver_list(nameservers: &[Nameserver]) -> String {
     let items = nameservers
         .iter()
         .filter_map(|ns| ns.ldh_name.as_deref())
-        .map(|n| {
-            format!(
-                "<li><span class=\"in_page_action\" x-on:click=\"query = '{}'; queryType = 'nameserver'; lookup()\">{}</span></li>",
-                escape(n),
-                mono(n)
-            )
-        })
+        .map(|n| format!("<li>{}</li>", lookup_action(n, "nameserver", &mono(n))))
         .collect::<Vec<_>>();
     if items.is_empty() {
         return String::new();

@@ -1,7 +1,7 @@
 use icann_rdap_common::prelude::Nameserver;
 
 use super::common::append_common;
-use super::html::{escape, kv_table, mono, push_unicode, render, row, title};
+use super::html::{kv_table, lookup_action, mono, push_unicode, render, row, title};
 
 pub(crate) fn nameserver_html(ns: &Nameserver, authority: &str) -> String {
     let oc = &ns.object_common;
@@ -19,20 +19,26 @@ pub(crate) fn nameserver_html(ns: &Nameserver, authority: &str) -> String {
             let items = v4
                 .vec()
                 .iter()
-                .map(|s| escape(&s.to_string()))
+                .map(|s| {
+                    let addr = s.to_string();
+                    lookup_action(&addr, "ip_v4_addr", &mono(&addr))
+                })
                 .collect::<Vec<_>>();
             if !items.is_empty() {
-                summary.push(row("IPv4", &mono(&items.join(", "))));
+                summary.push(row("IPv4", &items.join(", ")));
             }
         }
         if let Some(v6) = &ip.v6 {
             let items = v6
                 .vec()
                 .iter()
-                .map(|s| escape(&s.to_string()))
+                .map(|s| {
+                    let addr = s.to_string();
+                    lookup_action(&addr, "ip_v6_addr", &mono(&addr))
+                })
                 .collect::<Vec<_>>();
             if !items.is_empty() {
-                summary.push(row("IPv6", &mono(&items.join(", "))));
+                summary.push(row("IPv6", &items.join(", ")));
             }
         }
     }
@@ -66,5 +72,26 @@ mod tests {
         assert!(html.contains("IPv4"), "{html}");
         assert!(html.contains("192.0.2.1"), "{html}");
         assert!(html.contains("IPv6"), "{html}");
+    }
+
+    #[test]
+    fn nameserver_ip_addresses_are_lookup_links() {
+        let json = r#"{
+            "objectClassName": "nameserver",
+            "handle": "NS1-X",
+            "ldhName": "ns1.example.com",
+            "status": ["active"],
+            "ipAddresses": {"v4": ["192.0.2.1"], "v6": ["2001:db8::1"]}
+        }"#;
+        let ns: Nameserver = serde_json::from_str(json).unwrap();
+        let html = nameserver_html(&ns, "rdap.example");
+        assert!(
+            html.contains("query = '192.0.2.1'; queryType = 'ip_v4_addr'; lookup()"),
+            "{html}"
+        );
+        assert!(
+            html.contains("query = '2001:db8::1'; queryType = 'ip_v6_addr'; lookup()"),
+            "{html}"
+        );
     }
 }

@@ -61,6 +61,17 @@ pub(crate) fn mono(s: &str) -> String {
     format!("<span class=\"mono_text\">{}</span>", escape(s))
 }
 
+/// A clickable in-page action that sets the query value and query type, then
+/// triggers a lookup. `display` is pre-rendered inner HTML.
+pub(crate) fn lookup_action(value: &str, query_type: &str, display: &str) -> String {
+    format!(
+        "<span class=\"in_page_action\" x-on:click=\"query = '{}'; queryType = '{}'; lookup()\">{}</span>",
+        escape(value),
+        query_type,
+        display
+    )
+}
+
 /// Adds a "Unicode Name" row only when it differs from the LDH name.
 pub(crate) fn push_unicode(rows: &mut Vec<String>, unicode: Option<&str>, ldh: Option<&str>) {
     if let Some(u) = unicode {
