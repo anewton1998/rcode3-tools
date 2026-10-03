@@ -1,9 +1,11 @@
 mod custom;
+mod qtypes;
 
 use std::collections::HashSet;
 use std::sync::Mutex;
 
 use icann_rdap_client::prelude::*;
+use qtypes::{query_type_from_code, query_type_groups};
 use icann_rdap_client::rdap::ResponseData;
 use icann_rdap_client::rdap::redacted::simplify_redactions;
 use wasm_bindgen::JsValue;
@@ -38,10 +40,10 @@ pub fn get_bootstrap_url() -> String {
     current_bootstrap_url()
 }
 
-async fn lookup(query: &str) -> Result<ResponseData, RdapClientError> {
+async fn lookup_typed(code: &str, value: &str) -> Result<ResponseData, RdapClientError> {
     let config = ClientConfig::builder().exts_list(HashSet::new()).build();
     let client = create_client(&config)?;
-    let query_type = query.parse::<QueryType>()?;
+    let query_type = query_type_from_code(code, value)?;
     let base_url = current_bootstrap_url();
     rdap_request(&base_url, &query_type, &client)
         .await
@@ -49,6 +51,12 @@ async fn lookup(query: &str) -> Result<ResponseData, RdapClientError> {
             rdap: simplify_redactions(res.rdap, false),
             ..res
         })
+}
+
+/// Auto-detecting lookup (preserves the original `parse::<QueryType>()` behavior).
+#[allow(dead_code)]
+async fn lookup(query: &str) -> Result<ResponseData, RdapClientError> {
+    lookup_typed("auto", query).await
 }
 
 async fn lookup_url(url: &str) -> Result<ResponseData, RdapClientError> {
@@ -62,11 +70,23 @@ async fn lookup_url(url: &str) -> Result<ResponseData, RdapClientError> {
         })
 }
 
+/// Returns the grouped query-type options for the dropdown UI.
+///
+/// Resolves to an array of `{ label, options: [{ code, label }] }`.
+#[wasm_bindgen(js_name = queryTypeGroups)]
+pub fn query_type_groups_export() -> Result<JsValue, JsValue> {
+    serde_wasm_bindgen::to_value(&query_type_groups())
+        .map_err(|e| JsValue::from_str(&e.to_string()))
+}
+
 /// Runs an RDAP lookup in the browser and resolves with the full parsed
 /// response as a JS object.
+///
+/// `query_type` selects the [`QueryType`] to build (see `queryTypeGroups`);
+/// `None` (or `"auto"`) auto-detects from the query string.
 #[wasm_bindgen]
-pub async fn rdap_lookup(query: &str) -> Result<JsValue, JsValue> {
-    let data = lookup(query)
+pub async fn rdap_lookup(query: &str, query_type: Option<String>) -> Result<JsValue, JsValue> {
+    let data = lookup_typed(query_type.as_deref().unwrap_or("auto"), query)
         .await
         .map_err(|e| JsValue::from_str(&custom::describe_error(&e)))?;
     serde_wasm_bindgen::to_value(&data).map_err(|e| JsValue::from_str(&e.to_string()))
@@ -74,9 +94,12 @@ pub async fn rdap_lookup(query: &str) -> Result<JsValue, JsValue> {
 
 /// Runs an RDAP lookup and resolves with an HTML fragment rendered by the
 /// custom client-side logic in `custom.rs`.
+///
+/// `query_type` selects the [`QueryType`] to build (see `queryTypeGroups`);
+/// `None` (or `"auto"`) auto-detects from the query string.
 #[wasm_bindgen]
-pub async fn rdap_lookup_html(query: &str) -> Result<String, JsValue> {
-    let data = lookup(query)
+pub async fn rdap_lookup_html(query: &str, query_type: Option<String>) -> Result<String, JsValue> {
+    let data = lookup_typed(query_type.as_deref().unwrap_or("auto"), query)
         .await
         .map_err(|e| JsValue::from_str(&custom::describe_error(&e)))?;
     if data.http_data.status_code >= 400 {
@@ -138,7 +161,9 @@ mod tests {
 
     #[tokio::test]
     async fn native_domain_lookup_html_includes_referral_divider() {
-        let html = rdap_lookup_html("icann.org").await.expect("lookup html");
+        let html = rdap_lookup_html("icann.org", None)
+            .await
+            .expect("lookup html");
         assert!(
             html.contains("data_divider"),
             "expected a referral divider between results: {html}"

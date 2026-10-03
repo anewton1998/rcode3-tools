@@ -29,6 +29,7 @@
             RdapClient.set_bootstrap_url(window.RDAP_BOOTSTRAP_URL);
         }
         window.RdapClient = RdapClient;
+        window.dispatchEvent(new CustomEvent('rdap-ready'));
     </script>
     <script src="{{ base }}/static/vendor/htmx.min.js"></script>
     <script src="{{ base }}/static/vendor/alpine.min.js" defer></script>

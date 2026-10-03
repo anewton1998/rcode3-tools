@@ -573,10 +573,11 @@ mod tests {
 
     #[test]
     fn is_event_expiring_soon_returns_true_for_near_future() {
-        let future_date = "2026-10-01T00:00:00Z";
+        let future_date =
+            (chrono::Local::now() + chrono::TimeDelta::try_days(10).unwrap()).to_rfc3339();
         assert!(super::is_event_expiring_soon(
             Some(&"expiration".to_string()),
-            Some(&future_date.to_string())
+            Some(&future_date)
         ));
     }
 
@@ -591,10 +592,11 @@ mod tests {
 
     #[test]
     fn is_event_expiring_soon_returns_false_for_far_future() {
-        let far_future_date = "2027-01-01T00:00:00Z";
+        let far_future_date =
+            (chrono::Local::now() + chrono::TimeDelta::try_days(90).unwrap()).to_rfc3339();
         assert!(!super::is_event_expiring_soon(
             Some(&"expiration".to_string()),
-            Some(&far_future_date.to_string())
+            Some(&far_future_date)
         ));
     }
 

@@ -10,12 +10,13 @@ use tower_http::services::ServeDir;
 use tower_http::set_header::SetResponseHeaderLayer;
 use tower_http::trace::{DefaultMakeSpan, DefaultOnResponse, TraceLayer};
 use tracing::Level;
-use ui_components::{ProgressBar, TextInput, Theme};
+use ui_components::{ProgressBar, Select, TextInput, Theme};
 
 #[derive(Template)]
 #[template(path = "dashboard.html")]
 struct Dashboard {
     search_input_html: String,
+    query_type_select_html: String,
     progress_bar_html: String,
     theme: &'static str,
     base: String,
@@ -40,8 +41,13 @@ async fn render_dashboard(State(base): State<String>) -> Result<Html<String>, St
         .x_model("query")
         .enter_activates("#lookup-btn");
 
+    let query_type_select = Select::new("query_type")
+        .x_model("queryType")
+        .groups_expr("queryTypeGroups");
+
     let page = Dashboard {
         search_input_html: search_input.render().map_err(render_error)?,
+        query_type_select_html: query_type_select.render().map_err(render_error)?,
         progress_bar_html: ProgressBar.render().map_err(render_error)?,
         theme: Theme::from_env().class_name(),
         base,

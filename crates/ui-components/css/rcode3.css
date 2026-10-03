@@ -628,6 +628,30 @@ label {
 	font-family: var(--theme-primary-font-family);
 }
 
+.rcode3_select {
+	background-color: var(--theme-background-color);
+	color: var(--theme-primary-color);
+	border-color: var(--theme-action-color);
+	border-style: solid;
+	border-width: thin;
+	border-radius: .25em;
+	font-weight: var(--theme-primary-font-weight);
+	font-family: var(--theme-primary-font-family);
+	font-size: var(--theme-primary-font-size);
+	padding: .25em .5em;
+}
+
+.rcode3_select optgroup {
+	background-color: var(--theme-sub-section-background-color);
+	color: var(--theme-info-color);
+	font-style: normal;
+}
+
+.rcode3_select option {
+	background-color: var(--theme-background-color);
+	color: var(--theme-primary-color);
+}
+
 .in_page_action {
 	color: var(--theme-action-color);
 	text-decoration: underline;

@@ -50,6 +50,41 @@
 	flex: 1 1 0;
 }
 
+/* query panel: input + button on one row, query-type row beneath */
+.query_input_row {
+	display: flex;
+	flex-direction: row;
+	align-items: stretch;
+	gap: .5em;
+}
+
+.query_input_row .rcode3_input_text {
+	flex: 1 1 auto;
+	min-width: 0;
+}
+
+.query_input_row .rcode3_button {
+	flex: 0 0 auto;
+}
+
+.query_type_row {
+	display: flex;
+	flex-direction: row;
+	align-items: center;
+	gap: .5em;
+	margin-top: .6em;
+}
+
+.query_type_label {
+	font-weight: var(--theme-primary-font-weight);
+	white-space: nowrap;
+}
+
+.query_type_row .rcode3_select {
+	flex: 1 1 auto;
+	min-width: 0;
+}
+
 /* bottom row: summary 1/3, results 2/3 (1:2 grow ratio) */
 .panel_summary {
 	flex: 1 1 0;

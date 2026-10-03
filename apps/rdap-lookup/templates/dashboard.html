@@ -10,20 +10,34 @@
     </header>
 
     <div class="dashboard_body" x-data="{
-        query: '', result: '', error: '', busy: false, queryTime: '',
+        query: '', queryType: 'auto', queryTypeGroups: [], result: '', error: '', busy: false, queryTime: '',
+        async init() {
+            const load = async () => {
+                try { this.queryTypeGroups = await window.RdapClient.queryTypeGroups(); }
+                catch (e) { console.error('failed to load query types', e); }
+            };
+            if (window.RdapClient) { await load(); }
+            else { window.addEventListener('rdap-ready', load); }
+        },
         status() { return this.busy ? 'Looking up...' : this.error ? 'Error' : this.result ? 'Complete' : 'Idle'; },
         async lookup() {
             this.busy = true; this.error = ''; this.queryTime = new Date().toLocaleString();
-            try { this.result = await window.RdapClient.rdap_lookup_html(this.query); }
+            try { this.result = await window.RdapClient.rdap_lookup_html(this.query, this.queryType); }
             catch (e) { this.error = String(e); this.result = ''; }
             this.busy = false;
         }
     }">
         <div class="dash_row dash_row_top">
             <section class="panel panel_input">
-                {{ search_input_html|safe }}
-                <button id="lookup-btn" class="rcode3_button" :disabled="busy"
-                        @click="lookup()">Lookup</button>
+                <div class="query_input_row">
+                    {{ search_input_html|safe }}
+                    <button id="lookup-btn" class="rcode3_button" :disabled="busy"
+                            @click="lookup()">Lookup</button>
+                </div>
+                <div class="query_type_row">
+                    <label class="query_type_label" for="query_type">Query type</label>
+                    {{ query_type_select_html|safe }}
+                </div>
                 <span x-show="busy">{{ progress_bar_html|safe }}</span>
                 <span class="error_text" x-show="error" x-text="error"></span>
             </section>

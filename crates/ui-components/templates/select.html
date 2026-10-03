@@ -1,0 +1,16 @@
+<select class="rcode3_select" name="{{ name }}"
+        {% if let Some(x_model) = x_model %}x-model="{{ x_model }}" {% endif %}>
+{% if let Some(groups_expr) = groups_expr %}
+  <template x-for="g in {{ groups_expr }}" :key="g.label">
+    <optgroup :label="g.label">
+      <template x-for="o in g.options" :key="o.code">
+        <option :value="o.code" x-text="o.label"></option>
+      </template>
+    </optgroup>
+  </template>
+{% else %}
+  {%- for opt in options %}
+  <option value="{{ opt.value }}"{% if let Some(sel) = selected %}{% if *sel == opt.value %} selected{% endif %}{% endif %}>{{ opt.label }}</option>
+  {%- endfor %}
+{% endif %}
+</select>
