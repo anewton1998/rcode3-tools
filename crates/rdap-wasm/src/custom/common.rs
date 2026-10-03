@@ -142,7 +142,7 @@ pub(crate) fn nameserver_list(nameservers: &[Nameserver]) -> String {
         .filter_map(|ns| ns.ldh_name.as_deref())
         .map(|n| {
             format!(
-                "<li><span class=\"in_page_action\" x-on:click=\"query = '{}'; lookup()\">{}</span></li>",
+                "<li><span class=\"in_page_action\" x-on:click=\"query = '{}'; queryType = 'nameserver'; lookup()\">{}</span></li>",
                 escape(n),
                 mono(n)
             )
@@ -417,6 +417,21 @@ mod tests {
         assert!(html.contains("Hello world"), "{html}");
         assert!(html.contains("<h2"), "{html}");
         assert!(html.contains("info_text"), "{html}");
+    }
+
+    #[test]
+    fn nameserver_link_sets_query_and_query_type() {
+        let json = r#"{
+            "objectClassName": "domain",
+            "ldhName": "example.com",
+            "nameservers": [{"objectClassName": "nameserver", "ldhName": "ns1.example.com"}]
+        }"#;
+        let domain: Domain = serde_json::from_str(json).unwrap();
+        let html = domain_html(&domain, "rdap.example");
+        assert!(
+            html.contains("query = 'ns1.example.com'; queryType = 'nameserver'; lookup()"),
+            "{html}"
+        );
     }
 
     #[test]
