@@ -67,6 +67,26 @@
 	flex: 0 0 auto;
 }
 
+/* Clear-input button (⌫) between the query input and the Lookup button.
+   Primary color while the input is empty (and disabled); action color and
+   a pointer cursor once there is text to clear. */
+.clear_btn {
+	flex: 0 0 auto;
+	align-self: center;
+	background: none;
+	border: none;
+	padding: 0 .25em;
+	font-size: 1.25em;
+	line-height: 1;
+	cursor: default;
+	color: var(--theme-primary-color);
+}
+
+.clear_btn_active {
+	color: var(--theme-action-color);
+	cursor: pointer;
+}
+
 .query_type_row {
 	display: flex;
 	flex-direction: row;

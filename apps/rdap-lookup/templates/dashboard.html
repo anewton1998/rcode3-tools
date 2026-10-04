@@ -31,6 +31,10 @@
             <section class="panel panel_input">
                 <div class="query_input_row">
                     {{ search_input_html|safe }}
+                    <button type="button" class="clear_btn" title="Clear"
+                            :class="{ 'clear_btn_active': query.length > 0 }"
+                            :disabled="query.length === 0"
+                            @click="query = ''; queryType = 'auto'">&#x232B;</button>
                     <button id="lookup-btn" class="rcode3_button" :disabled="busy"
                             @click="lookup()">Lookup</button>
                 </div>
