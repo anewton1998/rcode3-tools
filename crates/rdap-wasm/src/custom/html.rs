@@ -123,13 +123,39 @@ pub(crate) fn copy_button(value: &str) -> String {
     )
 }
 
+/// True when `url` uses an http(s) scheme. Guards against `javascript:` /
+/// `data:` / other dangerous schemes arriving from untrusted RDAP responses
+/// (a `download` attribute does not neutralize a `javascript:` href).
+fn is_http_url(url: &str) -> bool {
+    let lower = url.to_ascii_lowercase();
+    lower.starts_with("http://") || lower.starts_with("https://")
+}
+
 /// Renders a URL as an external anchor that opens in a new browser tab.
 /// Uses the `off_site_link` class and `rel="noopener noreferrer"` so the
-/// opened page cannot reach back to this window.
+/// opened page cannot reach back to this window. Non-http(s) URLs render
+/// as nothing (the caller still shows the value as text).
 pub(crate) fn off_site_link(url: &str) -> String {
+    if !is_http_url(url) {
+        return String::new();
+    }
     format!(
         "<a class=\"off_site_link\" href=\"{href}\" target=\"_blank\" rel=\"noopener noreferrer\">{}</a>",
         mono(url),
+        href = escape_attr(url),
+    )
+}
+
+/// A ⤓ (U+21E3) download anchor for a geofeed CSV URL. The `download`
+/// attribute hints the browser to save the file instead of navigating.
+/// Rendered next to the href value (not wrapping it) so the URL stays
+/// visible as plain text. Non-http(s) URLs render as nothing.
+pub(crate) fn geofeed_download_link(url: &str) -> String {
+    if !is_http_url(url) {
+        return String::new();
+    }
+    format!(
+        "<a class=\"geofeed_download\" href=\"{href}\" download=\"geofeed.csv\" title=\"Download geofeed\">\u{21E3}</a>",
         href = escape_attr(url),
     )
 }

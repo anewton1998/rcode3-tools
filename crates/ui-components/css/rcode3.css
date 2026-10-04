@@ -744,6 +744,14 @@ label {
 	content: "\2B00";
 }
 
+/* Geofeed CSV download symbol (⤓) rendered next to the href value. */
+.geofeed_download {
+	color: var(--theme-action-color);
+	text-decoration: none;
+	margin-left: .35em;
+	cursor: pointer;
+}
+
 rcode3-main-layout {
 	display: grid;
 	grid-template-rows: 5rem min-content auto;

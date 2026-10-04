@@ -6,8 +6,8 @@ use icann_rdap_common::prelude::{
 
 use super::entity::append_entity_body;
 use super::html::{
-    copy_button, div, escape, kv_table, lookup_action, mono, off_site_link, row, section, str_opt,
-    title,
+    copy_button, div, escape, geofeed_download_link, kv_table, lookup_action, mono, off_site_link,
+    row, section, str_opt, title,
 };
 
 /// Appends the shared object-common sections (status, events, links, redacted,
@@ -253,6 +253,12 @@ fn is_html_media(media: Option<&str>) -> bool {
     has_base_media(media, "text/html")
 }
 
+/// True when a link's media type is a geofeed CSV (RFC 9092), ignoring
+/// any trailing `;` parameters, case-insensitively.
+fn is_geofeed(media: Option<&str>) -> bool {
+    has_base_media(media, "application/geofeed+csv")
+}
+
 /// Compares a media type's base (before any `;` parameters) against
 /// `expected`, case-insensitively.
 fn has_base_media(media: Option<&str>, expected: &str) -> bool {
@@ -269,10 +275,12 @@ fn links_table(links: &Links) -> String {
     let mut rows = Vec::new();
     for l in links.iter() {
         let rel = str_opt(l.rel.as_ref());
+        let mt = l.media_type.as_deref();
         let media = str_opt(l.media_type.as_ref());
         let url = match l.href.as_deref().or(l.value.as_deref()) {
-            Some(u) if is_rdap_json(l.media_type.as_deref()) => lookup_action(u, "url", &mono(u)),
-            Some(u) if is_html_media(l.media_type.as_deref()) => off_site_link(u),
+            Some(u) if is_rdap_json(mt) => lookup_action(u, "url", &mono(u)),
+            Some(u) if is_html_media(mt) => off_site_link(u),
+            Some(u) if is_geofeed(mt) => format!("{}{}", mono(u), geofeed_download_link(u)),
             Some(u) => mono(u),
             None => String::new(),
         };
@@ -550,6 +558,172 @@ mod tests {
     fn off_site_link_escapes_quotes_and_ampersands_in_href() {
         // GIVEN a hostile URL containing a double quote and an ampersand
         let html = super::off_site_link("https://example.com/a\"b&c");
+
+        // WHEN/THEN the href attribute cannot be broken out of
+        assert!(
+            html.contains("href=\"https://example.com/a&quot;b&amp;c\""),
+            "{html}"
+        );
+        assert!(
+            !html.contains("href=\"https://example.com/a\""),
+            "raw quote leaked into the href attribute: {html}"
+        );
+    }
+
+    #[test]
+    fn off_site_link_rejects_javascript_scheme() {
+        // GIVEN a hostile javascript: URL on a text/html link
+        let html = super::off_site_link("javascript:alert(1)");
+
+        // WHEN/THEN no anchor is produced
+        assert_eq!(html, "");
+    }
+
+    #[test]
+    fn geofeed_link_renders_download_symbol_next_to_href() {
+        // GIVEN a link whose media type is a geofeed CSV
+        let json = r#"{
+            "objectClassName": "domain",
+            "ldhName": "example.com",
+            "links": [
+                {"rel": "related", "type": "application/geofeed+csv", "href": "https://example.com/feed.csv"}
+            ]
+        }"#;
+        let domain: Domain = serde_json::from_str(json).unwrap();
+
+        // WHEN rendered
+        let html = domain_html(&domain, "rdap.example");
+
+        // THEN the href stays as plain mono text and a ⤓ download anchor
+        // follows it (not wrapping it)
+        assert!(
+            html.contains("<span class=\"mono_text\">https://example.com/feed.csv</span>"),
+            "href should remain visible as mono text: {html}"
+        );
+        assert!(
+            html.contains(
+                "<a class=\"geofeed_download\" href=\"https://example.com/feed.csv\" download=\"geofeed.csv\" title=\"Download geofeed\">\u{21E3}</a>"
+            ),
+            "{html}"
+        );
+        // the symbol must come after the href value
+        let href_pos = html
+            .find("https://example.com/feed.csv</span>")
+            .unwrap_or_else(|| panic!("href value missing: {html}"));
+        let sym_pos = html
+            .find("geofeed_download")
+            .unwrap_or_else(|| panic!("download symbol missing: {html}"));
+        assert!(
+            href_pos < sym_pos,
+            "download symbol should follow the href: {html}"
+        );
+    }
+
+    #[test]
+    fn geofeed_media_type_is_case_insensitive() {
+        // GIVEN a mixed-case geofeed media type
+        let json = r#"{
+            "objectClassName": "domain",
+            "ldhName": "example.com",
+            "links": [
+                {"rel": "related", "type": "APPLICATION/GeoFeed+CSV", "href": "https://example.com/f.csv"}
+            ]
+        }"#;
+        let domain: Domain = serde_json::from_str(json).unwrap();
+
+        // WHEN rendered
+        let html = domain_html(&domain, "rdap.example");
+
+        // THEN the download symbol is still added
+        assert!(html.contains("class=\"geofeed_download\""), "{html}");
+    }
+
+    #[test]
+    fn geofeed_value_fallback_gets_download_symbol() {
+        // GIVEN a geofeed link with no href, only a value
+        let json = r#"{
+            "objectClassName": "domain",
+            "ldhName": "example.com",
+            "links": [
+                {"rel": "related", "type": "application/geofeed+csv", "value": "https://example.com/v.csv"}
+            ]
+        }"#;
+        let domain: Domain = serde_json::from_str(json).unwrap();
+
+        // WHEN rendered
+        let html = domain_html(&domain, "rdap.example");
+
+        // THEN the value is used and gets the download symbol
+        assert!(
+            html.contains("<a class=\"geofeed_download\" href=\"https://example.com/v.csv\""),
+            "{html}"
+        );
+    }
+
+    #[test]
+    fn javascript_geofeed_href_gets_no_download_symbol() {
+        // GIVEN a hostile javascript: URL claiming to be a geofeed
+        let json = r#"{
+            "objectClassName": "domain",
+            "ldhName": "example.com",
+            "links": [
+                {"rel": "related", "type": "application/geofeed+csv", "href": "javascript:alert(1)"}
+            ]
+        }"#;
+        let domain: Domain = serde_json::from_str(json).unwrap();
+
+        // WHEN rendered
+        let html = domain_html(&domain, "rdap.example");
+
+        // THEN no download anchor is produced (the value stays as text only)
+        assert!(!html.contains("geofeed_download"), "{html}");
+        assert!(!html.contains("\u{21E3}"), "{html}");
+    }
+
+    #[test]
+    fn geofeed_media_type_with_parameters_still_gets_download_symbol() {
+        // GIVEN a geofeed media type with a trailing parameter
+        let json = r#"{
+            "objectClassName": "domain",
+            "ldhName": "example.com",
+            "links": [
+                {"rel": "related", "type": "application/geofeed+csv; x=1", "href": "https://example.com/f.csv"}
+            ]
+        }"#;
+        let domain: Domain = serde_json::from_str(json).unwrap();
+
+        // WHEN rendered
+        let html = domain_html(&domain, "rdap.example");
+
+        // THEN it still renders the download symbol
+        assert!(html.contains("class=\"geofeed_download\""), "{html}");
+        assert!(html.contains("download=\"geofeed.csv\""), "{html}");
+    }
+
+    #[test]
+    fn non_geofeed_link_gets_no_download_symbol() {
+        // GIVEN a link with a non-geofeed media type
+        let json = r#"{
+            "objectClassName": "domain",
+            "ldhName": "example.com",
+            "links": [
+                {"rel": "related", "type": "application/json", "href": "https://example.com/data.json"}
+            ]
+        }"#;
+        let domain: Domain = serde_json::from_str(json).unwrap();
+
+        // WHEN rendered
+        let html = domain_html(&domain, "rdap.example");
+
+        // THEN no download symbol is added
+        assert!(!html.contains("geofeed_download"), "{html}");
+        assert!(!html.contains("\u{21E3}"), "{html}");
+    }
+
+    #[test]
+    fn geofeed_download_link_escapes_quotes_in_href() {
+        // GIVEN a hostile geofeed URL
+        let html = super::geofeed_download_link("https://example.com/a\"b&c");
 
         // WHEN/THEN the href attribute cannot be broken out of
         assert!(
