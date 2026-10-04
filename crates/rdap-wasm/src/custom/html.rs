@@ -100,6 +100,25 @@ fn escape_js_attr(s: &str) -> String {
     out
 }
 
+/// Renders a URL as an external anchor that opens in a new browser tab.
+/// Uses the `off_site_link` class and `rel="noopener noreferrer"` so the
+/// opened page cannot reach back to this window.
+pub(crate) fn off_site_link(url: &str) -> String {
+    format!(
+        "<a class=\"off_site_link\" href=\"{href}\" target=\"_blank\" rel=\"noopener noreferrer\">{}</a>",
+        mono(url),
+        href = escape_attr(url),
+    )
+}
+
+/// Escapes a value for a double-quoted HTML attribute.
+fn escape_attr(s: &str) -> String {
+    s.replace('&', "&amp;")
+        .replace('<', "&lt;")
+        .replace('>', "&gt;")
+        .replace('"', "&quot;")
+}
+
 /// The RDAP RIR-search scope icon (an inline SVG) for a given scope name.
 ///
 /// Recognised scopes: `top`, `up`, `down`, `bottom`. Returns an empty string

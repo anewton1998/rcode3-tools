@@ -5,7 +5,9 @@ use icann_rdap_common::prelude::{
 };
 
 use super::entity::append_entity_body;
-use super::html::{div, escape, kv_table, lookup_action, mono, row, section, str_opt, title};
+use super::html::{
+    div, escape, kv_table, lookup_action, mono, off_site_link, row, section, str_opt, title,
+};
 
 /// Appends the shared object-common sections (status, events, links, redacted,
 /// nested entities, notices, conformance) to `parts`. Reused by every object-class renderer.
@@ -230,10 +232,22 @@ fn parse_event_date_to_local(date: Option<&String>) -> String {
 /// True when a link's media type is the RDAP JSON media type (ignoring any
 /// trailing `;` parameters), case-insensitively.
 fn is_rdap_json(media: Option<&str>) -> bool {
+    has_base_media(media, "application/rdap+json")
+}
+
+/// True when a link's media type is `text/html` (ignoring any trailing `;`
+/// parameters), case-insensitively.
+fn is_html_media(media: Option<&str>) -> bool {
+    has_base_media(media, "text/html")
+}
+
+/// Compares a media type's base (before any `;` parameters) against
+/// `expected`, case-insensitively.
+fn has_base_media(media: Option<&str>, expected: &str) -> bool {
     match media {
         Some(m) => {
             let base = m.split(';').next().unwrap_or("").trim();
-            base.eq_ignore_ascii_case("application/rdap+json")
+            base.eq_ignore_ascii_case(expected)
         }
         None => false,
     }
@@ -246,6 +260,7 @@ fn links_table(links: &Links) -> String {
         let media = str_opt(l.media_type.as_ref());
         let url = match l.href.as_deref().or(l.value.as_deref()) {
             Some(u) if is_rdap_json(l.media_type.as_deref()) => lookup_action(u, "url", &mono(u)),
+            Some(u) if is_html_media(l.media_type.as_deref()) => off_site_link(u),
             Some(u) => mono(u),
             None => String::new(),
         };
@@ -468,6 +483,70 @@ mod tests {
         assert!(
             !html.contains("query = 'https://example.com/whois'"),
             "non-rdap+json link should not be a lookup link: {html}"
+        );
+    }
+
+    #[test]
+    fn html_link_renders_as_off_site_anchor() {
+        // GIVEN a link whose media type is text/html
+        let json = r#"{
+            "objectClassName": "domain",
+            "ldhName": "example.com",
+            "links": [
+                {"rel": "related", "type": "text/html", "href": "https://example.com/whois"}
+            ]
+        }"#;
+        let domain: Domain = serde_json::from_str(json).unwrap();
+
+        // WHEN rendered
+        let html = domain_html(&domain, "rdap.example");
+
+        // THEN it is an anchor opening a new tab, not an in-page lookup
+        assert!(
+            html.contains(
+                "<a class=\"off_site_link\" href=\"https://example.com/whois\" target=\"_blank\" rel=\"noopener noreferrer\">"
+            ),
+            "{html}"
+        );
+        assert!(
+            !html.contains("query = 'https://example.com/whois'"),
+            "{html}"
+        );
+    }
+
+    #[test]
+    fn html_media_type_with_parameters_is_still_off_site() {
+        // GIVEN text/html with a trailing charset parameter
+        let json = r#"{
+            "objectClassName": "domain",
+            "ldhName": "example.com",
+            "links": [
+                {"rel": "related", "type": "text/html; charset=UTF-8", "href": "https://example.com/x"}
+            ]
+        }"#;
+        let domain: Domain = serde_json::from_str(json).unwrap();
+
+        // WHEN rendered
+        let html = domain_html(&domain, "rdap.example");
+
+        // THEN it still renders as an off-site anchor
+        assert!(html.contains("class=\"off_site_link\""), "{html}");
+        assert!(html.contains("target=\"_blank\""), "{html}");
+    }
+
+    #[test]
+    fn off_site_link_escapes_quotes_and_ampersands_in_href() {
+        // GIVEN a hostile URL containing a double quote and an ampersand
+        let html = super::off_site_link("https://example.com/a\"b&c");
+
+        // WHEN/THEN the href attribute cannot be broken out of
+        assert!(
+            html.contains("href=\"https://example.com/a&quot;b&amp;c\""),
+            "{html}"
+        );
+        assert!(
+            !html.contains("href=\"https://example.com/a\""),
+            "raw quote leaked into the href attribute: {html}"
         );
     }
 
