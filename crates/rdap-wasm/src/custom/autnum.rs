@@ -102,8 +102,8 @@ mod tests {
         // WHEN rendered
         let html = autnum_html(&a, "rdap.example");
 
-        // THEN each ASN is followed by " SRCH " and the four scope icon links
-        assert!(html.contains(" SRCH "), "missing SRCH label: {html}");
+        // THEN each ASN is followed by "(⌕ …)" with the four scope icon links
+        assert!(html.contains("(\u{2315}"), "missing search glyph: {html}");
         for asn in ["15169", "15170"] {
             for scope in ["top", "up", "down", "bottom"] {
                 assert!(

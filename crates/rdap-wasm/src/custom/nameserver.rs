@@ -123,8 +123,8 @@ mod tests {
         // WHEN rendered
         let html = nameserver_html(&ns, "rdap.example");
 
-        // THEN each address is followed by " SRCH " and the four scope icon links
-        assert!(html.contains(" SRCH "), "missing SRCH label: {html}");
+        // THEN each address is followed by "(⌕ …)" with the four scope icon links
+        assert!(html.contains("(\u{2315}"), "missing search glyph: {html}");
         for scope in ["top", "up", "down", "bottom"] {
             assert!(
                 html.contains(&format!(

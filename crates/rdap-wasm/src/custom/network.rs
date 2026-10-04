@@ -132,7 +132,7 @@ mod tests {
         // WHEN rendered
         let html = network_html(&net, "rdap.example");
 
-        // THEN each address is followed by " SRCH " and the four scope icon links
+        // THEN each address is followed by "(⌕ …)" with the four scope icon links
         for scope in ["top", "up", "down", "bottom"] {
             assert!(
                 html.contains(&format!(
@@ -151,14 +151,14 @@ mod tests {
                 "missing {scope} icon: {html}"
             );
         }
-        assert!(html.contains(" SRCH "), "missing SRCH label: {html}");
-        // the " SRCH " separator must sit between the address link and the icons
+        assert!(html.contains("(\u{2315}"), "missing search glyph: {html}");
+        // the parenthesised glyph group must sit between the address link and the icons
         let link = html
             .find("query = '192.0.2.0'; queryType = 'ip_v4_addr';")
             .expect("address link: {html}");
-        let sep = html.find(" SRCH ").expect("SRCH separator: {html}");
+        let sep = html.find("(\u{2315}").expect("search glyph: {html}");
         let icon = html.find("rdap-icon rdap-top").expect("top icon: {html}");
-        assert!(link < sep && sep < icon, "SRCH label misplaced: {html}");
+        assert!(link < sep && sep < icon, "search glyph misplaced: {html}");
     }
 
     #[test]
@@ -205,7 +205,7 @@ mod tests {
         // WHEN rendered
         let html = network_html(&net, "rdap.example");
 
-        // THEN each CIDR is followed by " SRCH " and cidr-scoped icon links
+        // THEN each CIDR is followed by "(⌕ …)" with cidr-scoped icon links
         for scope in ["top", "up", "down", "bottom"] {
             assert!(
                 html.contains(&format!(
@@ -220,6 +220,6 @@ mod tests {
                 "missing v6 cidr {scope} scope link: {html}"
             );
         }
-        assert!(html.contains(" SRCH "), "missing SRCH label: {html}");
+        assert!(html.contains("(\u{2315}"), "missing search glyph: {html}");
     }
 }

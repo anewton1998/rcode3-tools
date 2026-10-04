@@ -140,8 +140,9 @@ pub(crate) fn scope_links(value: &str, base_code: &str) -> String {
         .collect::<String>()
 }
 
-/// Renders a value as its lookup link followed by the literal "SRCH" and
-/// the four scope icon links. `display` is the link's pre-rendered inner
+/// Renders a value as its lookup link followed by the search glyph
+/// `⌕` (U+2315) and the four scope icon links, wrapped in parentheses:
+/// `{link} (⌕{icons})`. `display` is the link's pre-rendered inner
 /// HTML. Empty values render as plain display text (a lookup on an empty
 /// query is meaningless).
 pub(crate) fn lookup_with_scopes(value: &str, base_code: &str, display: &str) -> String {
@@ -149,7 +150,7 @@ pub(crate) fn lookup_with_scopes(value: &str, base_code: &str, display: &str) ->
         return display.to_string();
     }
     format!(
-        "{} SRCH {}",
+        "{} (\u{2315}{})",
         lookup_action(value, base_code, display),
         scope_links(value, base_code)
     )
