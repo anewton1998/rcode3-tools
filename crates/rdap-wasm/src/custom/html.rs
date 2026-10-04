@@ -122,12 +122,12 @@ pub(crate) fn rdap_scope_icon(scope: &str) -> &'static str {
     }
 }
 
-/// The four RDAP RIR-search scope icon links (top/up/down/bottom) for an
-/// address or CIDR value, built on a base query-type code such as
-/// `ip_v4_addr` or `ip_v6_cidr` (the concrete codes are
+/// The four RDAP RIR-search scope icon links (top/up/down/bottom) for a
+/// value, built on a base query-type code such as `ip_v4_addr`,
+/// `ip_v6_cidr`, or `as_number` (the concrete codes are
 /// `{base_code}_top`, `{base_code}_up`, `{base_code}_down`,
 /// `{base_code}_bottom`).
-pub(crate) fn ip_scope_links(value: &str, base_code: &str) -> String {
+pub(crate) fn scope_links(value: &str, base_code: &str) -> String {
     ["top", "up", "down", "bottom"]
         .iter()
         .map(|scope| {
@@ -140,18 +140,25 @@ pub(crate) fn ip_scope_links(value: &str, base_code: &str) -> String {
         .collect::<String>()
 }
 
-/// Renders an address or CIDR value as its lookup link followed by the
-/// literal "SRCH" and the four RIR-search scope icon links. Empty values
-/// render as plain text (a lookup on an empty query is meaningless).
-pub(crate) fn addr_with_scopes(value: &str, base_code: &str) -> String {
+/// Renders a value as its lookup link followed by the literal "SRCH" and
+/// the four scope icon links. `display` is the link's pre-rendered inner
+/// HTML. Empty values render as plain display text (a lookup on an empty
+/// query is meaningless).
+pub(crate) fn lookup_with_scopes(value: &str, base_code: &str, display: &str) -> String {
     if value.is_empty() {
-        return mono(value);
+        return display.to_string();
     }
     format!(
         "{} SRCH {}",
-        lookup_action(value, base_code, &mono(value)),
-        ip_scope_links(value, base_code)
+        lookup_action(value, base_code, display),
+        scope_links(value, base_code)
     )
+}
+
+/// Address/CIDR convenience wrapper around [`lookup_with_scopes`] where the
+/// link simply displays the value itself.
+pub(crate) fn addr_with_scopes(value: &str, base_code: &str) -> String {
+    lookup_with_scopes(value, base_code, &mono(value))
 }
 
 /// Adds a "Unicode Name" row only when it differs from the LDH name.

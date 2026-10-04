@@ -1,7 +1,7 @@
 use icann_rdap_common::prelude::Autnum;
 
 use super::common::append_common;
-use super::html::{escape, kv_table, lookup_action, mono, render, row, title};
+use super::html::{escape, kv_table, lookup_with_scopes, mono, render, row, title};
 
 pub(crate) fn autnum_html(a: &Autnum, authority: &str) -> String {
     let oc = &a.object_common;
@@ -14,13 +14,13 @@ pub(crate) fn autnum_html(a: &Autnum, authority: &str) -> String {
         // Query value is the bare ASN (no "AS" prefix); the prefix is display-only.
         summary.push(row(
             "Start AS",
-            &lookup_action(&s.to_string(), "as_number", &mono(&format!("AS{s}"))),
+            &lookup_with_scopes(&s.to_string(), "as_number", &mono(&format!("AS{s}"))),
         ));
     }
     if let Some(e) = end.filter(|e| *e != start.unwrap_or(0)) {
         summary.push(row(
             "End AS",
-            &lookup_action(&e.to_string(), "as_number", &mono(&format!("AS{e}"))),
+            &lookup_with_scopes(&e.to_string(), "as_number", &mono(&format!("AS{e}"))),
         ));
     }
     if let Some(n) = a.name.as_deref() {
@@ -86,5 +86,37 @@ mod tests {
             !html.contains("query = 'AS"),
             "query value should not carry the AS prefix: {html}"
         );
+    }
+
+    #[test]
+    fn as_numbers_are_followed_by_srch_label_and_scope_icons() {
+        // GIVEN an autnum with distinct start and end ASNs
+        let json = r#"{
+            "objectClassName": "autnum",
+            "handle": "AS15169-15170",
+            "startAutnum": 15169,
+            "endAutnum": 15170
+        }"#;
+        let a: Autnum = serde_json::from_str(json).unwrap();
+
+        // WHEN rendered
+        let html = autnum_html(&a, "rdap.example");
+
+        // THEN each ASN is followed by " SRCH " and the four scope icon links
+        assert!(html.contains(" SRCH "), "missing SRCH label: {html}");
+        for asn in ["15169", "15170"] {
+            for scope in ["top", "up", "down", "bottom"] {
+                assert!(
+                    html.contains(&format!(
+                        "query = '{asn}'; queryType = 'as_number_{scope}'; lookup()"
+                    )),
+                    "missing {asn} {scope} scope link: {html}"
+                );
+                assert!(
+                    html.contains(&format!("class=\"rdap-icon rdap-{scope}\"")),
+                    "missing {scope} icon: {html}"
+                );
+            }
+        }
     }
 }
