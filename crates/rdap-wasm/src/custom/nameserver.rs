@@ -16,29 +16,21 @@ pub(crate) fn nameserver_html(ns: &Nameserver, authority: &str) -> String {
     );
     if let Some(ip) = &ns.ip_addresses {
         if let Some(v4) = &ip.v4 {
-            let items = v4
-                .vec()
-                .iter()
-                .map(|s| {
-                    let addr = s.to_string();
-                    lookup_action(&addr, "ip_v4_addr", &mono(&addr))
-                })
-                .collect::<Vec<_>>();
-            if !items.is_empty() {
-                summary.push(row("IPv4", &items.join(", ")));
+            for s in v4.vec() {
+                let addr = s.to_string();
+                summary.push(row(
+                    "IPv4",
+                    &lookup_action(&addr, "ip_v4_addr", &mono(&addr)),
+                ));
             }
         }
         if let Some(v6) = &ip.v6 {
-            let items = v6
-                .vec()
-                .iter()
-                .map(|s| {
-                    let addr = s.to_string();
-                    lookup_action(&addr, "ip_v6_addr", &mono(&addr))
-                })
-                .collect::<Vec<_>>();
-            if !items.is_empty() {
-                summary.push(row("IPv6", &items.join(", ")));
+            for s in v6.vec() {
+                let addr = s.to_string();
+                summary.push(row(
+                    "IPv6",
+                    &lookup_action(&addr, "ip_v6_addr", &mono(&addr)),
+                ));
             }
         }
     }
@@ -93,5 +85,32 @@ mod tests {
             html.contains("query = '2001:db8::1'; queryType = 'ip_v6_addr'; lookup()"),
             "{html}"
         );
+    }
+
+    #[test]
+    fn multiple_nameserver_ips_each_get_their_own_row() {
+        let json = r#"{
+            "objectClassName": "nameserver",
+            "handle": "NS1-X",
+            "ldhName": "ns1.example.com",
+            "status": ["active"],
+            "ipAddresses": {"v4": ["192.0.2.1", "192.0.2.2"], "v6": ["2001:db8::1", "2001:db8::2"]}
+        }"#;
+        let ns: Nameserver = serde_json::from_str(json).unwrap();
+        let html = nameserver_html(&ns, "rdap.example");
+        let v4_rows = html.matches("<td class=\"data_key\">IPv4</td>").count();
+        let v6_rows = html.matches("<td class=\"data_key\">IPv6</td>").count();
+        assert_eq!(v4_rows, 2, "expected one IPv4 row per address: {html}");
+        assert_eq!(v6_rows, 2, "expected one IPv6 row per address: {html}");
+        assert!(
+            html.contains("query = '192.0.2.2'; queryType = 'ip_v4_addr'; lookup()"),
+            "{html}"
+        );
+        assert!(
+            html.contains("query = '2001:db8::2'; queryType = 'ip_v6_addr'; lookup()"),
+            "{html}"
+        );
+        // addresses must not be comma-joined into a single cell
+        assert!(!html.contains("192.0.2.1, 192.0.2.2"), "{html}");
     }
 }
