@@ -180,10 +180,16 @@ fn events_table(events: &Events) -> String {
     } else {
         format!(
             "<table class=\"data_table\"><thead><tr><th>Action</th><th>Local</th><th>Date</th></tr></thead><tbody>{}</tbody></table>",
-            rows.iter().map(|(a, d, _, l, exp)| {
-                let row_class = if *exp { " class=\"warning_text\"" } else { "" };
-                format!("<tr{}><td>{}</td><td>{}</td><td class=\"mono_text\">{}</td></tr>", row_class, a, l, d)
-            }).collect::<Vec<_>>().join("")
+            rows.iter()
+                .map(|(a, d, _, l, exp)| {
+                    let row_class = if *exp { " class=\"warning_text\"" } else { "" };
+                    format!(
+                        "<tr{}><td>{}</td><td>{}</td><td class=\"mono_text\">{}</td></tr>",
+                        row_class, a, l, d
+                    )
+                })
+                .collect::<Vec<_>>()
+                .join("")
         )
     }
 }
@@ -206,7 +212,7 @@ fn is_event_expiring_soon(action: Option<&String>, date: Option<&String>) -> boo
     };
     let now = chrono::Local::now();
     let diff = (dt - now).num_days();
-    diff < 30 && diff >= 0
+    (0..30).contains(&diff)
 }
 
 fn parse_event_date_to_local(date: Option<&String>) -> String {
@@ -221,17 +227,28 @@ fn parse_event_date_to_local(date: Option<&String>) -> String {
     dt.format("%d %b %Y at %l:%M %P").to_string()
 }
 
+/// True when a link's media type is the RDAP JSON media type (ignoring any
+/// trailing `;` parameters), case-insensitively.
+fn is_rdap_json(media: Option<&str>) -> bool {
+    match media {
+        Some(m) => {
+            let base = m.split(';').next().unwrap_or("").trim();
+            base.eq_ignore_ascii_case("application/rdap+json")
+        }
+        None => false,
+    }
+}
+
 fn links_table(links: &Links) -> String {
     let mut rows = Vec::new();
     for l in links.iter() {
         let rel = str_opt(l.rel.as_ref());
         let media = str_opt(l.media_type.as_ref());
-        let url = l
-            .href
-            .as_deref()
-            .or(l.value.as_deref())
-            .map(mono)
-            .unwrap_or_default();
+        let url = match l.href.as_deref().or(l.value.as_deref()) {
+            Some(u) if is_rdap_json(l.media_type.as_deref()) => lookup_action(u, "url", &mono(u)),
+            Some(u) => mono(u),
+            None => String::new(),
+        };
         if rel.is_empty() && media.is_empty() && url.is_empty() {
             continue;
         }
@@ -425,6 +442,32 @@ mod tests {
         assert!(
             html.contains("query = 'ns1.example.com'; queryType = 'nameserver'; lookup()"),
             "{html}"
+        );
+    }
+
+    #[test]
+    fn rdap_json_link_is_a_url_lookup_link() {
+        let json = r#"{
+            "objectClassName": "domain",
+            "ldhName": "example.com",
+            "links": [
+                {"rel": "self", "type": "application/rdap+json", "href": "https://rdap.example/domain/example.com"},
+                {"rel": "related", "type": "text/html", "href": "https://example.com/whois"}
+            ]
+        }"#;
+        let domain: Domain = serde_json::from_str(json).unwrap();
+        let html = domain_html(&domain, "rdap.example");
+        assert!(
+            html.contains(
+                "query = 'https://rdap.example/domain/example.com'; queryType = 'url'; lookup()"
+            ),
+            "{html}"
+        );
+        // a non-rdap+json link stays plain text (no lookup action)
+        assert!(html.contains("https://example.com/whois"), "{html}");
+        assert!(
+            !html.contains("query = 'https://example.com/whois'"),
+            "non-rdap+json link should not be a lookup link: {html}"
         );
     }
 
