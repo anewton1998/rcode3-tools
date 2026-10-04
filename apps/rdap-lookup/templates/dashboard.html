@@ -3,30 +3,173 @@
 {% block title %}Dashboard · RDAP Lookup{% endblock %}
 
 {% block content %}
+<script>
+    // Dashboard component for Alpine.js.
+    //
+    // Design notes:
+    // - Query history lives client-side (Alpine state + localStorage) because
+    //   RDAP lookups execute in the browser via WASM; the server never sees
+    //   queries or results, so a server-side store would buy nothing.
+    // - Entries store metadata only (no result HTML): storage stays small and
+    //   a re-query always fetches fresh RDAP data.
+    // - localStorage is treated as untrusted: every read is shape-validated
+    //   and every access is guarded, so corrupt or unavailable storage
+    //   degrades to a session-only history instead of breaking the app.
+    // - Multi-tab caveat: two open tabs each keep their own history and the
+    //   last writer wins. Accepted for a single-user lookup tool.
+    window.rdapDashboard = function () {
+        const HISTORY_KEY = 'rdap-history';
+        const HISTORY_VERSION = 1;
+        const HISTORY_MAX = 50;
+        const QUERY_MAX = 253; // RFC 1035 max domain name length
+        const ERROR_MAX = 500;
+
+        // Tolerant read: keep well-formed entries, drop anything else.
+        // The whitelisted `status` guarantees class bindings only ever see
+        // known values, even from tampered storage.
+        function sanitizeEntry(raw) {
+            if (!raw || typeof raw !== 'object') return null;
+            if (typeof raw.query !== 'string' || raw.query.length === 0 || raw.query.length > QUERY_MAX) return null;
+            if (typeof raw.queryType !== 'string') return null;
+            if (raw.status !== 'ok' && raw.status !== 'error') return null;
+            if (!Number.isFinite(raw.id)) return null;
+            return {
+                id: raw.id,
+                query: raw.query,
+                queryType: raw.queryType,
+                status: raw.status,
+                error: typeof raw.error === 'string' ? raw.error.slice(0, ERROR_MAX) : '',
+                time: typeof raw.time === 'string' ? raw.time : '',
+            };
+        }
+
+        // Monotonic tiebreaker mixed into entry ids so two lookups landing in
+        // the same millisecond can never produce duplicate :key values.
+        let seq = 0;
+
+        return {
+            query: '',
+            queryType: 'auto',
+            queryTypeGroups: [],
+            result: '',
+            error: '',
+            busy: false,
+            history: [],    // newest first
+            activeId: null, // entry currently shown in Results
+
+            async init() {
+                this.restore();
+                const load = async () => {
+                    try { this.queryTypeGroups = await window.RdapClient.queryTypeGroups(); }
+                    catch (e) { console.error('failed to load query types', e); }
+                };
+                if (window.RdapClient) { await load(); }
+                else { window.addEventListener('rdap-ready', load); }
+            },
+
+            async lookup() {
+                if (this.busy) return;
+                const q = this.query.trim();
+                if (!q) return;
+                this.busy = true;
+                this.error = '';
+                const t = this.queryType;
+                const entry = {
+                    id: Date.now() * 1000 + (seq++ % 1000),
+                    query: q.slice(0, QUERY_MAX),
+                    queryType: t,
+                    status: 'ok',
+                    error: '',
+                    time: new Date().toLocaleString(),
+                };
+                try {
+                    this.result = await window.RdapClient.rdap_lookup_html(q, t);
+                } catch (e) {
+                    entry.status = 'error';
+                    entry.error = String(e).slice(0, ERROR_MAX);
+                    this.error = String(e);
+                    this.result = '';
+                }
+                this.record(entry);
+                this.busy = false;
+            },
+
+            // Prepend as newest; dedup so a re-query moves the matching entry
+            // to the top with a fresh timestamp instead of stacking duplicates.
+            record(entry) {
+                const dupe = this.history.findIndex(function (h) {
+                    return h.query === entry.query && h.queryType === entry.queryType;
+                });
+                if (dupe !== -1) this.history.splice(dupe, 1);
+                this.history.unshift(entry);
+                if (this.history.length > HISTORY_MAX) this.history.length = HISTORY_MAX;
+                this.activeId = entry.id;
+                this.persist();
+            },
+
+            async requery(entry) {
+                if (this.busy) return;
+                this.query = entry.query;
+                this.queryType = entry.queryType;
+                await this.lookup();
+            },
+
+            clearHistory() {
+                this.history = [];
+                this.activeId = null;
+                try { localStorage.removeItem(HISTORY_KEY); } catch (_) { /* storage unavailable */ }
+            },
+
+            persist() {
+                const encode = (entries) => JSON.stringify({ v: HISTORY_VERSION, entries: entries });
+                try {
+                    localStorage.setItem(HISTORY_KEY, encode(this.history));
+                } catch (_) {
+                    // Quota: persist a trimmed copy only — the visible session
+                    // history keeps all its entries. If even that fails, go
+                    // session-only.
+                    try {
+                        localStorage.setItem(HISTORY_KEY, encode(this.history.slice(0, 10)));
+                    } catch (__) {
+                        console.warn('rdap history: storage unavailable; running session-only');
+                    }
+                }
+            },
+
+            restore() {
+                let raw = null;
+                try { raw = localStorage.getItem(HISTORY_KEY); } catch (_) { return; }
+                if (!raw) return;
+                let parsed = null;
+                try { parsed = JSON.parse(raw); } catch (_) { parsed = null; }
+                if (parsed === null || typeof parsed !== 'object') {
+                    // Unparseable garbage: self-heal so we don't re-parse it
+                    // on every load.
+                    try { localStorage.removeItem(HISTORY_KEY); } catch (_) { /* ignore */ }
+                    return;
+                }
+                if (parsed.v !== HISTORY_VERSION || !Array.isArray(parsed.entries)) {
+                    // Unknown or future format: leave it untouched for a
+                    // newer client to handle.
+                    return;
+                }
+                this.history = parsed.entries.map(sanitizeEntry).filter(Boolean).slice(0, HISTORY_MAX);
+                if (this.history.length === 0) {
+                    // v1 envelope with nothing salvageable: clear it out.
+                    try { localStorage.removeItem(HISTORY_KEY); } catch (_) { /* ignore */ }
+                }
+            },
+        };
+    };
+</script>
+
 <main class="main_panel">
     <header class="site_banner">
         <a href="{{ home_url }}"><img src="{{ base }}/static/images/logo-1024.png" alt="rcode3 logo" class="site_logo"></a>
         <rcode3-site-name>rdap lookup</rcode3-site-name>
     </header>
 
-    <div class="dashboard_body" x-data="{
-        query: '', queryType: 'auto', queryTypeGroups: [], result: '', error: '', busy: false, queryTime: '',
-        async init() {
-            const load = async () => {
-                try { this.queryTypeGroups = await window.RdapClient.queryTypeGroups(); }
-                catch (e) { console.error('failed to load query types', e); }
-            };
-            if (window.RdapClient) { await load(); }
-            else { window.addEventListener('rdap-ready', load); }
-        },
-        status() { return this.busy ? 'Looking up...' : this.error ? 'Error' : this.result ? 'Complete' : 'Idle'; },
-        async lookup() {
-            this.busy = true; this.error = ''; this.queryTime = new Date().toLocaleString();
-            try { this.result = await window.RdapClient.rdap_lookup_html(this.query, this.queryType); }
-            catch (e) { this.error = String(e); this.result = ''; }
-            this.busy = false;
-        }
-    }">
+    <div class="dashboard_body" x-data="rdapDashboard()">
         <div class="dash_row dash_row_top">
             <section class="panel panel_input">
                 <div class="query_input_row">
@@ -52,18 +195,40 @@
                     <li>Enter a domain name, e.g. <code>example.com</code></li>
                     <li>Or an IP address, e.g. <code>192.0.2.1</code></li>
                     <li>Press <kbd>Enter</kbd> or click <strong>Lookup</strong> to run the query</li>
+                    <li>Recent queries appear in the Summary panel with a <strong>Re-query</strong> link</li>
                 </ul>
             </section>
         </div>
 
         <div class="dash_row dash_row_bottom">
             <aside class="panel panel_summary">
-                <h2 class="panel_title">Summary</h2>
-                <dl class="summary_list">
-                    <div><dt>Query</dt><dd x-text="query || '(none)'""></dd></div>
-                    <div><dt>Status</dt><dd x-text="status()"></dd></div>
-                    <div><dt>Time</dt><dd x-text="queryTime || '(none)'""></dd></div>
-                </dl>
+                <div class="summary_header">
+                    <h2 class="panel_title">Summary</h2>
+                    <button type="button" class="history_clear_btn" x-show="history.length > 0"
+                            @click="clearHistory()">Clear</button>
+                </div>
+                <p class="history_empty" x-show="history.length === 0">No queries yet.</p>
+                <div class="history_list">
+                    {# Alpine 3 requires a single root element per x-for iteration,
+                       so the separator lives inside the item, not beside it. #}
+                    <template x-for="(entry, index) in history" :key="entry.id">
+                        <div class="history_item"
+                             :class="{ 'history_item_error': entry.status === 'error',
+                                      'history_item_active': entry.id === activeId }">
+                            <hr class="history_divider" x-show="index > 0">
+                            <div class="history_row">
+                                <span class="history_query" x-text="entry.query"></span>
+                                <a href="#" class="requery_link" :class="{ 'requery_link_disabled': busy }"
+                                   @click.prevent="requery(entry)">Re-query</a>
+                            </div>
+                            <div class="history_meta">
+                                <span class="history_type" x-text="entry.queryType"></span>
+                                <span class="history_time" x-text="entry.time"></span>
+                            </div>
+                            <div class="history_error" x-show="entry.status === 'error'" x-text="entry.error"></div>
+                        </div>
+                    </template>
+                </div>
             </aside>
 
             <section class="panel panel_results">

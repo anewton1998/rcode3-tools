@@ -134,30 +134,105 @@
 	color: var(--theme-danger-color);
 }
 
-.summary_list {
-	margin: 0;
-}
-
-.summary_list > div {
+/* ---- Summary query-history list ---- */
+.summary_header {
 	display: flex;
+	align-items: baseline;
 	justify-content: space-between;
-	gap: 1em;
-	padding: .3em 0;
-	border-bottom-width: thin;
-	border-bottom-style: solid;
-	border-color: var(--theme-sub-section-background-color);
+	gap: .5em;
 }
 
-.summary_list dt {
-	font-weight: var(--theme-primary-font-weight);
+.history_clear_btn {
+	background: none;
+	border: none;
+	padding: 0;
+	cursor: pointer;
+	font-size: .85em;
+	color: var(--theme-action-color);
 }
 
-.summary_list dd {
-	margin: 0;
-	text-align: right;
-	overflow-wrap: anywhere;
+.history_clear_btn:hover {
+	color: var(--theme-accent-color);
+}
+
+.history_empty {
+	margin: .25em 0 0;
+	font-style: italic;
+	opacity: .7;
+}
+
+.history_list {
+	margin-top: .25em;
+}
+
+.history_item {
+	padding: .4em 0;
+}
+
+.history_item_error {
+	border-left: 2px solid var(--theme-danger-color);
+	padding-left: .5em;
+}
+
+.history_row {
+	display: flex;
+	align-items: baseline;
+	justify-content: space-between;
+	gap: .75em;
+}
+
+.history_query {
 	font-family: var(--theme-monospace-font-family);
 	font-size: var(--theme-monospace-font-size);
+	overflow-wrap: anywhere;
+	min-width: 0;
+}
+
+.history_item_active .history_query {
+	text-decoration: underline;
+	text-decoration-color: var(--theme-accent-color);
+	text-decoration-thickness: .12rem;
+	text-underline-offset: .25rem;
+}
+
+.requery_link {
+	flex: 0 0 auto;
+	color: var(--theme-action-color);
+	text-decoration: underline;
+	cursor: pointer;
+}
+
+.requery_link:hover {
+	color: var(--theme-accent-color);
+}
+
+.requery_link_disabled {
+	opacity: .5;
+	pointer-events: none;
+	cursor: default;
+}
+
+.history_meta {
+	display: flex;
+	gap: .75em;
+	margin-top: .15em;
+	font-size: .8em;
+	opacity: .75;
+}
+
+.history_error {
+	margin-top: .2em;
+	font-size: .85em;
+	color: var(--theme-danger-color);
+	overflow-wrap: anywhere;
+}
+
+/* Accent separator between history entries, mirroring .data_divider
+   from the results panel. */
+.history_divider {
+	border: none;
+	border-top: 1px solid var(--theme-accent-color);
+	margin: .5rem 0;
 }
 
 /* responsive stacking on narrow screens */
