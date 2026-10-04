@@ -75,6 +75,23 @@ pub(crate) fn lookup_action(value: &str, query_type: &str, display: &str) -> Str
     )
 }
 
+/// Like [`lookup_action`], but adds a `title` tooltip on the clickable
+/// span (shown by the browser on hover). The `title` is HTML-escaped.
+pub(crate) fn lookup_action_titled(
+    value: &str,
+    query_type: &str,
+    display: &str,
+    title: &str,
+) -> String {
+    format!(
+        "<span class=\"in_page_action\" title=\"{title}\" x-on:click=\"query = '{}'; queryType = '{}'; lookup()\">{}</span>",
+        escape_js_attr(value),
+        escape_js_attr(query_type),
+        display,
+        title = escape_attr(title),
+    )
+}
+
 /// Escapes a value for embedding in a single-quoted JS string inside a
 /// double-quoted HTML attribute.
 ///
@@ -200,18 +217,25 @@ pub(crate) fn rdap_scope_icon(scope: &str) -> &'static str {
 /// value, built on a base query-type code such as `ip_v4_addr`,
 /// `ip_v6_cidr`, or `as_number` (the concrete codes are
 /// `{base_code}_top`, `{base_code}_up`, `{base_code}_down`,
-/// `{base_code}_bottom`).
+/// `{base_code}_bottom`). Each carries a hover tooltip describing the
+/// navigation it performs.
 pub(crate) fn scope_links(value: &str, base_code: &str) -> String {
-    ["top", "up", "down", "bottom"]
-        .iter()
-        .map(|scope| {
-            lookup_action(
-                value,
-                &format!("{base_code}_{scope}"),
-                rdap_scope_icon(scope),
-            )
-        })
-        .collect::<String>()
+    [
+        ("top", "Top"),
+        ("up", "Up"),
+        ("down", "Down"),
+        ("bottom", "Bottom"),
+    ]
+    .iter()
+    .map(|(scope, tip)| {
+        lookup_action_titled(
+            value,
+            &format!("{base_code}_{scope}"),
+            rdap_scope_icon(scope),
+            tip,
+        )
+    })
+    .collect::<String>()
 }
 
 /// Renders a value as its lookup link followed by the search glyph
@@ -264,6 +288,28 @@ pub(crate) fn escape(s: &str) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn scope_links_carry_hover_tooltips() {
+        // GIVEN the four scope links for a value
+        let html = scope_links("192.0.2.1", "ip_v4_addr");
+
+        // THEN each scope icon link carries its descriptive tooltip
+        assert!(html.contains("title=\"Top\""), "{html}");
+        assert!(html.contains("title=\"Up\""), "{html}");
+        assert!(html.contains("title=\"Down\""), "{html}");
+        assert!(html.contains("title=\"Bottom\""), "{html}");
+    }
+
+    #[test]
+    fn lookup_action_titled_escapes_the_title_attribute() {
+        // GIVEN a title containing a double quote
+        let html = lookup_action_titled("v", "ip_v4_addr_top", "x", "a\"b");
+
+        // WHEN/THEN the title attribute cannot be broken out of
+        assert!(html.contains("title=\"a&quot;b\""), "{html}");
+        assert!(!html.contains("title=\"a\"b"), "{html}");
+    }
 
     #[test]
     fn lookup_action_escapes_double_quotes_in_value() {
