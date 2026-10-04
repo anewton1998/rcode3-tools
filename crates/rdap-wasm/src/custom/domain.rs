@@ -1,7 +1,9 @@
 use icann_rdap_common::prelude::Domain;
 
 use super::common::{append_common, nameserver_list};
-use super::html::{kv_table, lookup_with_scopes, mono, push_unicode, render, row, section, title};
+use super::html::{
+    kv_table, lookup_with_scopes, mono, push_unicode, render, row, section, title, with_copy,
+};
 
 /// The reverse-DNS base query code for a domain name, if it is one:
 /// `rdns_ipv4` for `*.in-addr.arpa`, `rdns_ipv6` for `*.ip6.arpa`
@@ -25,16 +27,18 @@ pub(crate) fn domain_html(domain: &Domain, authority: &str) -> String {
     if let Some(name) = domain.ldh_name.as_deref() {
         // Reverse-DNS domains get the ⌕ scope links so the reverse
         // delegation hierarchy can be walked up/down from the name.
+        // The copy button copies the canonical name (trailing root dot
+        // stripped), matching the query value.
+        let copied = name.trim_end_matches('.');
         let value = match rdns_base(name) {
             Some(base) => {
                 // A trailing root dot is display-only; the query value
                 // uses the canonical untrailing-dot form.
-                let query = name.trim_end_matches('.');
-                lookup_with_scopes(query, base, &mono(name))
+                lookup_with_scopes(copied, base, &mono(name))
             }
             None => mono(name),
         };
-        summary.push(row("Name", &value));
+        summary.push(row("Name", &with_copy(value, copied)));
     }
     push_unicode(
         &mut summary,
@@ -245,6 +249,68 @@ mod tests {
         // THEN no reverse-DNS scope links are added
         assert!(!html.contains("rdns_"), "{html}");
         assert!(!html.contains("\u{2315}"), "{html}");
+    }
+
+    #[test]
+    fn domain_name_has_copy_button() {
+        // GIVEN a forward domain
+        let json = r#"{
+            "objectClassName": "domain",
+            "handle": "EXAMPLE-COM",
+            "ldhName": "example.com"
+        }"#;
+        let domain: Domain = serde_json::from_str(json).unwrap();
+
+        // WHEN rendered
+        let html = domain_html(&domain, "rdap.example");
+
+        // THEN the Name row carries a copy button with the domain name
+        assert!(html.contains("copyToClipboard('example.com')"), "{html}");
+    }
+
+    #[test]
+    fn reverse_domain_name_copy_strips_trailing_dot() {
+        // GIVEN a reverse-DNS name with a trailing root dot
+        let json = r#"{
+            "objectClassName": "domain",
+            "handle": "1.192.in-addr.arpa",
+            "ldhName": "1.192.in-addr.arpa."
+        }"#;
+        let domain: Domain = serde_json::from_str(json).unwrap();
+
+        // WHEN rendered
+        let html = domain_html(&domain, "rdap.example");
+
+        // THEN the copy value is the canonical (dot-stripped) name
+        assert!(
+            html.contains("copyToClipboard('1.192.in-addr.arpa')"),
+            "{html}"
+        );
+        assert!(
+            !html.contains("copyToClipboard('1.192.in-addr.arpa.'"),
+            "trailing dot leaked into copy value: {html}"
+        );
+    }
+
+    #[test]
+    fn forward_domain_with_trailing_dot_copies_clean() {
+        // GIVEN a forward (non-reverse) domain with a trailing root dot
+        let json = r#"{
+            "objectClassName": "domain",
+            "handle": "EXAMPLE-COM",
+            "ldhName": "example.com."
+        }"#;
+        let domain: Domain = serde_json::from_str(json).unwrap();
+
+        // WHEN rendered
+        let html = domain_html(&domain, "rdap.example");
+
+        // THEN the copy value is the dot-stripped name
+        assert!(html.contains("copyToClipboard('example.com')"), "{html}");
+        assert!(
+            !html.contains("copyToClipboard('example.com.'"),
+            "trailing dot leaked into copy value: {html}"
+        );
     }
 
     #[test]

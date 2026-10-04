@@ -1,7 +1,7 @@
 use icann_rdap_common::prelude::Autnum;
 
 use super::common::append_common;
-use super::html::{escape, kv_table, lookup_with_scopes, mono, render, row, title};
+use super::html::{escape, kv_table, lookup_with_scopes, mono, render, row, title, with_copy};
 
 pub(crate) fn autnum_html(a: &Autnum, authority: &str) -> String {
     let oc = &a.object_common;
@@ -11,16 +11,25 @@ pub(crate) fn autnum_html(a: &Autnum, authority: &str) -> String {
 
     let mut summary = Vec::new();
     if let Some(s) = start {
-        // Query value is the bare ASN (no "AS" prefix); the prefix is display-only.
+        // Query value is the bare ASN (no "AS" prefix); the prefix is
+        // display-only, and the copy button copies the bare number too.
+        let bare = s.to_string();
         summary.push(row(
             "Start AS",
-            &lookup_with_scopes(&s.to_string(), "as_number", &mono(&format!("AS{s}"))),
+            &with_copy(
+                lookup_with_scopes(&bare, "as_number", &mono(&format!("AS{s}"))),
+                &bare,
+            ),
         ));
     }
     if let Some(e) = end.filter(|e| *e != start.unwrap_or(0)) {
+        let bare = e.to_string();
         summary.push(row(
             "End AS",
-            &lookup_with_scopes(&e.to_string(), "as_number", &mono(&format!("AS{e}"))),
+            &with_copy(
+                lookup_with_scopes(&bare, "as_number", &mono(&format!("AS{e}"))),
+                &bare,
+            ),
         ));
     }
     if let Some(n) = a.name.as_deref() {
@@ -118,5 +127,29 @@ mod tests {
                 );
             }
         }
+    }
+
+    #[test]
+    fn as_numbers_have_copy_button_with_bare_number() {
+        // GIVEN an autnum with distinct start and end ASNs
+        let json = r#"{
+            "objectClassName": "autnum",
+            "handle": "AS15169-15170",
+            "startAutnum": 15169,
+            "endAutnum": 15170
+        }"#;
+        let a: Autnum = serde_json::from_str(json).unwrap();
+
+        // WHEN rendered
+        let html = autnum_html(&a, "rdap.example");
+
+        // THEN each ASN has a copy button carrying the bare number
+        // (not the display-only "AS" prefix)
+        assert!(html.contains("copyToClipboard('15169')"), "{html}");
+        assert!(html.contains("copyToClipboard('15170')"), "{html}");
+        assert!(
+            !html.contains("copyToClipboard('AS"),
+            "copy value should not carry the AS prefix: {html}"
+        );
     }
 }

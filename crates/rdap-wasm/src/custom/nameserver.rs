@@ -1,13 +1,18 @@
 use icann_rdap_common::prelude::Nameserver;
 
 use super::common::append_common;
-use super::html::{addr_with_scopes, kv_table, mono, push_unicode, render, row, title};
+use super::html::{addr_with_scopes, kv_table, mono, push_unicode, render, row, title, with_copy};
 
 pub(crate) fn nameserver_html(ns: &Nameserver, authority: &str) -> String {
     let oc = &ns.object_common;
     let mut summary = Vec::new();
     if let Some(name) = ns.ldh_name.as_deref() {
-        summary.push(row("Name", &mono(name)));
+        // Copy the canonical name (trailing root dot stripped), matching
+        // the domain-name policy.
+        summary.push(row(
+            "Name",
+            &with_copy(mono(name), name.trim_end_matches('.')),
+        ));
     }
     push_unicode(
         &mut summary,
@@ -18,13 +23,19 @@ pub(crate) fn nameserver_html(ns: &Nameserver, authority: &str) -> String {
         if let Some(v4) = &ip.v4 {
             for s in v4.vec() {
                 let addr = s.to_string();
-                summary.push(row("IPv4", &addr_with_scopes(&addr, "ip_v4_addr")));
+                summary.push(row(
+                    "IPv4",
+                    &with_copy(addr_with_scopes(&addr, "ip_v4_addr"), &addr),
+                ));
             }
         }
         if let Some(v6) = &ip.v6 {
             for s in v6.vec() {
                 let addr = s.to_string();
-                summary.push(row("IPv6", &addr_with_scopes(&addr, "ip_v6_addr")));
+                summary.push(row(
+                    "IPv6",
+                    &with_copy(addr_with_scopes(&addr, "ip_v6_addr"), &addr),
+                ));
             }
         }
     }
@@ -143,5 +154,53 @@ mod tests {
                 "missing {scope} icon: {html}"
             );
         }
+    }
+
+    #[test]
+    fn nameserver_name_and_ips_have_copy_buttons() {
+        // GIVEN a nameserver with a name and v4/v6 addresses
+        let json = r#"{
+            "objectClassName": "nameserver",
+            "handle": "NS1-X",
+            "ldhName": "ns1.example.com",
+            "status": ["active"],
+            "ipAddresses": {"v4": ["192.0.2.1"], "v6": ["2001:db8::1"]}
+        }"#;
+        let ns: Nameserver = serde_json::from_str(json).unwrap();
+
+        // WHEN rendered
+        let html = nameserver_html(&ns, "rdap.example");
+
+        // THEN the name and each address have a copy button
+        assert!(
+            html.contains("copyToClipboard('ns1.example.com')"),
+            "{html}"
+        );
+        assert!(html.contains("copyToClipboard('192.0.2.1')"), "{html}");
+        assert!(html.contains("copyToClipboard('2001:db8::1')"), "{html}");
+    }
+
+    #[test]
+    fn nameserver_trailing_dot_name_copies_clean() {
+        // GIVEN a nameserver whose name has a trailing root dot
+        let json = r#"{
+            "objectClassName": "nameserver",
+            "handle": "NS1-X",
+            "ldhName": "ns1.example.com."
+        }"#;
+        let ns: Nameserver = serde_json::from_str(json).unwrap();
+
+        // WHEN rendered
+        let html = nameserver_html(&ns, "rdap.example");
+
+        // THEN the copy value is the dot-stripped canonical name
+        assert!(
+            html.contains("copyToClipboard('ns1.example.com')"),
+            "{html}"
+        );
+        assert!(
+            !html.contains("copyToClipboard('ns1.example.com.'"),
+            "trailing dot leaked into copy value: {html}"
+        );
     }
 }

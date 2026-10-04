@@ -131,6 +131,12 @@ fn is_http_url(url: &str) -> bool {
     lower.starts_with("http://") || lower.starts_with("https://")
 }
 
+/// Appends a copy-to-clipboard button (for `copy_value`) to an already
+/// rendered value string, so the copy icon trails the value.
+pub(crate) fn with_copy(rendered: String, copy_value: &str) -> String {
+    format!("{rendered}{}", copy_button(copy_value))
+}
+
 /// Renders a URL as an external anchor that opens in a new browser tab.
 /// Uses the `off_site_link` class and `rel="noopener noreferrer"` so the
 /// opened page cannot reach back to this window. Non-http(s) URLs render

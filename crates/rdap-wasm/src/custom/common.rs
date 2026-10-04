@@ -6,8 +6,8 @@ use icann_rdap_common::prelude::{
 
 use super::entity::append_entity_body;
 use super::html::{
-    copy_button, div, escape, geofeed_download_link, kv_table, lookup_action, mono, off_site_link,
-    row, section, str_opt, title,
+    div, escape, geofeed_download_link, kv_table, lookup_action, mono, off_site_link, row, section,
+    str_opt, title, with_copy,
 };
 
 /// Appends the shared object-common sections (status, events, links, redacted,
@@ -124,10 +124,7 @@ pub(crate) fn contact_rows(contact: &Contact) -> String {
     let emails: Vec<String> = contact.emails().iter().map(|e| e.email.clone()).collect();
     if !emails.is_empty() {
         // Each email gets its own copy-to-clipboard button.
-        let items: Vec<String> = emails
-            .iter()
-            .map(|e| format!("{}{}", escape(e), copy_button(e)))
-            .collect();
+        let items: Vec<String> = emails.iter().map(|e| with_copy(escape(e), e)).collect();
         rows.push(row("Email", &items.join(" ")));
     }
     for p in contact.phones() {
@@ -143,7 +140,7 @@ pub(crate) fn contact_rows(contact: &Contact) -> String {
         let copied = p.phone.strip_prefix("tel:").unwrap_or(&p.phone);
         rows.push(row(
             "Phone",
-            &format!("{}{}{}", escape(&p.phone), type_str, copy_button(copied)),
+            &with_copy(format!("{}{}", escape(&p.phone), type_str), copied),
         ));
     }
     kv_table(&rows)
@@ -154,7 +151,15 @@ pub(crate) fn nameserver_list(nameservers: &[Nameserver]) -> String {
     let items = nameservers
         .iter()
         .filter_map(|ns| ns.ldh_name.as_deref())
-        .map(|n| format!("<li>{}</li>", lookup_action(n, "nameserver", &mono(n))))
+        .map(|n| {
+            format!(
+                "<li>{}</li>",
+                with_copy(
+                    lookup_action(n, "nameserver", &mono(n)),
+                    n.trim_end_matches('.')
+                )
+            )
+        })
         .collect::<Vec<_>>();
     if items.is_empty() {
         return String::new();
@@ -476,6 +481,38 @@ mod tests {
         let html = domain_html(&domain, "rdap.example");
         assert!(
             html.contains("query = 'ns1.example.com'; queryType = 'nameserver'; lookup()"),
+            "{html}"
+        );
+        // each nameserver name in the list also gets a copy button
+        assert!(
+            html.contains("copyToClipboard('ns1.example.com')"),
+            "{html}"
+        );
+    }
+
+    #[test]
+    fn nameserver_list_gives_each_entry_its_own_copy_button() {
+        // GIVEN a domain with multiple nameservers
+        let json = r#"{
+            "objectClassName": "domain",
+            "ldhName": "example.com",
+            "nameservers": [
+                {"objectClassName": "nameserver", "ldhName": "ns1.example.com"},
+                {"objectClassName": "nameserver", "ldhName": "ns2.example.com"}
+            ]
+        }"#;
+        let domain: Domain = serde_json::from_str(json).unwrap();
+
+        // WHEN rendered
+        let html = domain_html(&domain, "rdap.example");
+
+        // THEN each nameserver name gets its own copy button
+        assert!(
+            html.contains("copyToClipboard('ns1.example.com')"),
+            "{html}"
+        );
+        assert!(
+            html.contains("copyToClipboard('ns2.example.com')"),
             "{html}"
         );
     }

@@ -1,7 +1,7 @@
 use icann_rdap_common::prelude::Network;
 
 use super::common::append_common;
-use super::html::{addr_with_scopes, escape, kv_table, mono, render, row, title};
+use super::html::{addr_with_scopes, escape, kv_table, mono, render, row, title, with_copy};
 
 /// Picks the address lookup query-type base code from the address string.
 /// Appending `_top`/`_up`/`_down`/`_bottom` yields the scoped variants.
@@ -20,11 +20,14 @@ pub(crate) fn network_html(net: &Network, authority: &str) -> String {
     if let Some(s) = net.start_address.as_deref() {
         summary.push(row(
             "Start Address",
-            &addr_with_scopes(s, addr_query_type(s)),
+            &with_copy(addr_with_scopes(s, addr_query_type(s)), s),
         ));
     }
     if let Some(e) = net.end_address.as_deref() {
-        summary.push(row("End Address", &addr_with_scopes(e, addr_query_type(e))));
+        summary.push(row(
+            "End Address",
+            &with_copy(addr_with_scopes(e, addr_query_type(e)), e),
+        ));
     }
     if let Some(cidrs) = &net.cidr0_cidrs {
         for cidr in cidrs {
@@ -41,7 +44,10 @@ pub(crate) fn network_html(net: &Network, authority: &str) -> String {
                     Some(length) => format!("{prefix_str}/{length}"),
                     None => prefix_str,
                 };
-                summary.push(row("CIDR", &addr_with_scopes(&cidr_value, query_type)));
+                summary.push(row(
+                    "CIDR",
+                    &with_copy(addr_with_scopes(&cidr_value, query_type), &cidr_value),
+                ));
             }
         }
     }
@@ -221,5 +227,26 @@ mod tests {
             );
         }
         assert!(html.contains("(\u{2315}"), "missing search glyph: {html}");
+    }
+
+    #[test]
+    fn network_addresses_and_cidrs_have_copy_buttons() {
+        // GIVEN a network with start/end addresses and a CIDR
+        let json = r#"{
+            "objectClassName": "network",
+            "handle": "NET-1",
+            "startAddress": "192.0.2.0",
+            "endAddress": "192.0.2.255",
+            "cidr0_cidrs": [{"v4prefix": "192.0.2.0", "length": 24}]
+        }"#;
+        let net: Network = serde_json::from_str(json).unwrap();
+
+        // WHEN rendered
+        let html = network_html(&net, "rdap.example");
+
+        // THEN each address and the CIDR have a copy button
+        assert!(html.contains("copyToClipboard('192.0.2.0')"), "{html}");
+        assert!(html.contains("copyToClipboard('192.0.2.255')"), "{html}");
+        assert!(html.contains("copyToClipboard('192.0.2.0/24')"), "{html}");
     }
 }
