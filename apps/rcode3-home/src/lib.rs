@@ -1,10 +1,10 @@
 use askama::Template;
 use axum::{
+    Router,
     extract::State,
-    http::{header, StatusCode},
+    http::{StatusCode, header},
     response::Html,
     routing::get,
-    Router,
 };
 use tower_http::services::ServeDir;
 use tower_http::trace::{DefaultMakeSpan, DefaultOnResponse, TraceLayer};
@@ -45,7 +45,11 @@ fn normalize_base(base: &str) -> String {
 
 pub fn router(base: &str) -> Router {
     let base = normalize_base(base);
-    let url_base = if base == "/" { String::new() } else { base.clone() };
+    let url_base = if base == "/" {
+        String::new()
+    } else {
+        base.clone()
+    };
 
     let app = Router::new()
         .route("/", get(render_home))
