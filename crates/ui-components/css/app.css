@@ -246,3 +246,31 @@
 	vertical-align: -0.125em;
 	margin-left: .05em;
 }
+
+/* Copy-to-clipboard button for phones and emails, tinted with the
+   same action color as in-page action links. */
+.copy_btn {
+	background: none;
+	border: none;
+	padding: 0;
+	margin-left: .35em;
+	cursor: pointer;
+	color: var(--theme-action-color);
+	vertical-align: middle;
+	line-height: 1;
+}
+
+.copy_btn:hover {
+	color: var(--theme-accent-color);
+}
+
+.copy-icon,
+.check-icon {
+	width: 1em;
+	height: 1em;
+	vertical-align: -0.125em;
+}
+
+.check-icon {
+	color: var(--theme-accent-color);
+}

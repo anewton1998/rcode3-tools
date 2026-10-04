@@ -6,7 +6,8 @@ use icann_rdap_common::prelude::{
 
 use super::entity::append_entity_body;
 use super::html::{
-    div, escape, kv_table, lookup_action, mono, off_site_link, row, section, str_opt, title,
+    copy_button, div, escape, kv_table, lookup_action, mono, off_site_link, row, section, str_opt,
+    title,
 };
 
 /// Appends the shared object-common sections (status, events, links, redacted,
@@ -122,7 +123,12 @@ pub(crate) fn contact_rows(contact: &Contact) -> String {
     }
     let emails: Vec<String> = contact.emails().iter().map(|e| e.email.clone()).collect();
     if !emails.is_empty() {
-        rows.push(row("Email", &escape(&emails.join(", "))));
+        // Each email gets its own copy-to-clipboard button.
+        let items: Vec<String> = emails
+            .iter()
+            .map(|e| format!("{}{}", escape(e), copy_button(e)))
+            .collect();
+        rows.push(row("Email", &items.join(" ")));
     }
     for p in contact.phones() {
         let type_str = p
@@ -132,7 +138,13 @@ pub(crate) fn contact_rows(contact: &Contact) -> String {
             .and_then(|types| types.first())
             .map(|t| format!(" ({})", escape(t)))
             .unwrap_or_default();
-        rows.push(row("Phone", &format!("{}{}", escape(&p.phone), type_str)));
+        // The copied value drops the `tel:` URI scheme so the user gets
+        // the bare phone number on the clipboard.
+        let copied = p.phone.strip_prefix("tel:").unwrap_or(&p.phone);
+        rows.push(row(
+            "Phone",
+            &format!("{}{}{}", escape(&p.phone), type_str, copy_button(copied)),
+        ));
     }
     kv_table(&rows)
 }
@@ -427,7 +439,7 @@ fn conformance_section(
 #[cfg(test)]
 mod tests {
     use crate::custom::domain::domain_html;
-    use icann_rdap_common::prelude::Domain;
+    use icann_rdap_common::prelude::{Contact, Domain};
 
     #[test]
     fn remarks_rendered_with_title() {
@@ -564,6 +576,35 @@ mod tests {
         assert!(html.contains("See docs"), "{html}");
         assert!(html.contains("mono_text"), "{html}");
         assert!(html.contains("warning_text"), "{html}");
+    }
+
+    #[test]
+    fn contact_rows_add_copy_buttons_to_emails_and_phones() {
+        // GIVEN a contact with an email and a tel: phone
+        let json = r#"["vcard", [
+            ["version", {}, "text", "4.0"],
+            ["fn", {}, "text", "John Doe"],
+            ["email", {}, "text", "john@example.com"],
+            ["tel", {"type": ["voice"]}, "uri", "tel:+1.555.1234"]
+        ]]"#;
+        let data: Vec<serde_json::Value> = serde_json::from_str(json).unwrap();
+        let contact = Contact::from_vcard(&data).expect("vCard should parse");
+
+        // WHEN rendered
+        let html = super::contact_rows(&contact);
+
+        // THEN each value gets a copy button with the right clipboard text
+        assert!(
+            html.contains("copyToClipboard('john@example.com')"),
+            "{html}"
+        );
+        assert!(
+            html.contains("copyToClipboard('+1.555.1234')"),
+            "tel: scheme should be stripped from the copied value: {html}"
+        );
+        assert_eq!(html.matches("copy_btn").count(), 2, "{html}");
+        // the display keeps the original tel: URI
+        assert!(html.contains("tel:+1.555.1234"), "{html}");
     }
 
     #[test]

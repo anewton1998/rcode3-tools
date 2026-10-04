@@ -31,6 +31,35 @@
         window.RdapClient = RdapClient;
         window.dispatchEvent(new CustomEvent('rdap-ready'));
     </script>
+    <script>
+        // Copy helper used by the copy-to-clipboard buttons rendered by rdap-wasm.
+        // Uses the async Clipboard API in secure contexts and falls back to a
+        // hidden textarea + execCommand('copy') where navigator.clipboard is
+        // unavailable (e.g. plain HTTP). Returns a Promise that resolves on a
+        // successful copy.
+        window.copyToClipboard = function (text) {
+            if (navigator.clipboard && window.isSecureContext) {
+                return navigator.clipboard.writeText(text);
+            }
+            return new Promise(function (resolve, reject) {
+                var ta = document.createElement('textarea');
+                ta.value = text;
+                ta.setAttribute('readonly', '');
+                ta.style.position = 'fixed';
+                ta.style.top = '-1000px';
+                document.body.appendChild(ta);
+                ta.select();
+                var ok = false;
+                try {
+                    ok = document.execCommand('copy');
+                } catch (e) {
+                    ok = false;
+                }
+                document.body.removeChild(ta);
+                if (ok) { resolve(); } else { reject(new Error('Copy failed')); }
+            });
+        };
+    </script>
     <script src="{{ base }}/static/vendor/htmx.min.js"></script>
     <script src="{{ base }}/static/vendor/alpine.min.js" defer></script>
 </body>

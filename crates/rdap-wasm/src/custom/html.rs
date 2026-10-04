@@ -100,6 +100,29 @@ fn escape_js_attr(s: &str) -> String {
     out
 }
 
+/// The copy-to-clipboard icon (shown while not just-copied).
+const COPY_ICON_SVG: &str = r#"<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="copy-icon" x-show="!copied"><rect width="8" height="4" x="8" y="2" rx="1" ry="1"/><path d="M16 4h2a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h2"/></svg>"#;
+
+/// The checkmark icon (shown for two seconds after a successful copy).
+const CHECK_ICON_SVG: &str = r#"<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="check-icon" x-show="copied"><path d="M20 6 9 17l-5-5"/></svg>"#;
+
+/// A copy-to-clipboard button for `value` (phone numbers, emails).
+/// Clicking copies the value via the `copyToClipboard` helper defined in
+/// `layout.html` (async Clipboard API with an `execCommand` fallback for
+/// non-secure contexts); the copy icon swaps to a checkmark for two
+/// seconds, then swaps back so it can be clicked again. The value is
+/// escaped for the JS string literal inside the Alpine click handler.
+/// Empty values render nothing.
+pub(crate) fn copy_button(value: &str) -> String {
+    if value.is_empty() {
+        return String::new();
+    }
+    format!(
+        "<button type=\"button\" class=\"copy_btn\" title=\"Copy to clipboard\" x-data=\"{{ copied: false }}\" x-on:click=\"copyToClipboard('{js}').then(() => {{ copied = true; setTimeout(() => copied = false, 2000) }})\">{COPY_ICON_SVG}{CHECK_ICON_SVG}</button>",
+        js = escape_js_attr(value),
+    )
+}
+
 /// Renders a URL as an external anchor that opens in a new browser tab.
 /// Uses the `off_site_link` class and `rel="noopener noreferrer"` so the
 /// opened page cannot reach back to this window.
@@ -254,6 +277,45 @@ mod tests {
             html.contains("query = '192.0.2.1'; queryType = 'ip_v4_addr'; lookup()"),
             "{html}"
         );
+    }
+
+    #[test]
+    fn copy_button_renders_both_icons_and_clipboard_write() {
+        // GIVEN an ordinary value
+        let html = copy_button("a@b.com");
+
+        // WHEN/THEN it has the button, both icons with their x-show
+        // toggles, the clipboard write, and the 1s revert timer
+        assert!(html.contains("class=\"copy_btn\""), "{html}");
+        assert!(
+            html.contains("class=\"copy-icon\" x-show=\"!copied\""),
+            "{html}"
+        );
+        assert!(
+            html.contains("class=\"check-icon\" x-show=\"copied\""),
+            "{html}"
+        );
+        assert!(html.contains("copyToClipboard('a@b.com')"), "{html}");
+        assert!(
+            html.contains("setTimeout(() => copied = false, 2000)"),
+            "{html}"
+        );
+    }
+
+    #[test]
+    fn copy_button_escapes_hostile_value() {
+        // GIVEN a value trying to break out of the JS string
+        let html = copy_button("a'; alert(1); //");
+
+        // WHEN/THEN the quote is JS-escaped
+        assert!(html.contains(r"copyToClipboard('a\'"), "{html}");
+    }
+
+    #[test]
+    fn copy_button_empty_renders_nothing() {
+        // GIVEN an empty value
+        // WHEN/THEN no button is rendered
+        assert_eq!(copy_button(""), "");
     }
 
     #[test]
