@@ -236,3 +236,11 @@
 	border-top: 1px solid var(--theme-accent-color);
 	margin: 1rem 0;
 }
+
+/* RDAP RIR-search scope icons rendered inline after an address */
+.rdap-icon {
+	width: 1em;
+	height: 1em;
+	vertical-align: -0.125em;
+	margin-left: .2em;
+}

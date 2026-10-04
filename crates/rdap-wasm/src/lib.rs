@@ -5,9 +5,9 @@ use std::collections::HashSet;
 use std::sync::Mutex;
 
 use icann_rdap_client::prelude::*;
-use qtypes::{query_type_from_code, query_type_groups};
 use icann_rdap_client::rdap::ResponseData;
 use icann_rdap_client::rdap::redacted::simplify_redactions;
+use qtypes::{query_type_from_code, query_type_groups};
 use wasm_bindgen::JsValue;
 use wasm_bindgen::prelude::*;
 

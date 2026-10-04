@@ -1,7 +1,7 @@
 use icann_rdap_common::prelude::Nameserver;
 
 use super::common::append_common;
-use super::html::{kv_table, lookup_action, mono, push_unicode, render, row, title};
+use super::html::{addr_with_scopes, kv_table, mono, push_unicode, render, row, title};
 
 pub(crate) fn nameserver_html(ns: &Nameserver, authority: &str) -> String {
     let oc = &ns.object_common;
@@ -18,19 +18,13 @@ pub(crate) fn nameserver_html(ns: &Nameserver, authority: &str) -> String {
         if let Some(v4) = &ip.v4 {
             for s in v4.vec() {
                 let addr = s.to_string();
-                summary.push(row(
-                    "IPv4",
-                    &lookup_action(&addr, "ip_v4_addr", &mono(&addr)),
-                ));
+                summary.push(row("IPv4", &addr_with_scopes(&addr, "ip_v4_addr")));
             }
         }
         if let Some(v6) = &ip.v6 {
             for s in v6.vec() {
                 let addr = s.to_string();
-                summary.push(row(
-                    "IPv6",
-                    &lookup_action(&addr, "ip_v6_addr", &mono(&addr)),
-                ));
+                summary.push(row("IPv6", &addr_with_scopes(&addr, "ip_v6_addr")));
             }
         }
     }
@@ -112,5 +106,42 @@ mod tests {
         );
         // addresses must not be comma-joined into a single cell
         assert!(!html.contains("192.0.2.1, 192.0.2.2"), "{html}");
+    }
+
+    #[test]
+    fn nameserver_ips_are_followed_by_ip_label_and_scope_icons() {
+        // GIVEN a nameserver with a v4 and a v6 address
+        let json = r#"{
+            "objectClassName": "nameserver",
+            "handle": "NS1-X",
+            "ldhName": "ns1.example.com",
+            "status": ["active"],
+            "ipAddresses": {"v4": ["192.0.2.1"], "v6": ["2001:db8::1"]}
+        }"#;
+        let ns: Nameserver = serde_json::from_str(json).unwrap();
+
+        // WHEN rendered
+        let html = nameserver_html(&ns, "rdap.example");
+
+        // THEN each address is followed by " SRCH " and the four scope icon links
+        assert!(html.contains(" SRCH "), "missing SRCH label: {html}");
+        for scope in ["top", "up", "down", "bottom"] {
+            assert!(
+                html.contains(&format!(
+                    "query = '192.0.2.1'; queryType = 'ip_v4_addr_{scope}'; lookup()"
+                )),
+                "missing v4 {scope} scope link: {html}"
+            );
+            assert!(
+                html.contains(&format!(
+                    "query = '2001:db8::1'; queryType = 'ip_v6_addr_{scope}'; lookup()"
+                )),
+                "missing v6 {scope} scope link: {html}"
+            );
+            assert!(
+                html.contains(&format!("class=\"rdap-icon rdap-{scope}\"")),
+                "missing {scope} icon: {html}"
+            );
+        }
     }
 }

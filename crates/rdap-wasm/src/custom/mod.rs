@@ -7,8 +7,8 @@ mod html;
 mod nameserver;
 mod network;
 
-use icann_rdap_client::rdap::ResponseData;
 use icann_rdap_client::RdapClientError;
+use icann_rdap_client::rdap::ResponseData;
 use icann_rdap_common::prelude::RdapResponse;
 
 pub use error::{describe_error, http_error_message};

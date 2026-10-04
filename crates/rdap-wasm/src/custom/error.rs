@@ -1,5 +1,5 @@
-use icann_rdap_client::rdap::ResponseData;
 use icann_rdap_client::RdapClientError;
+use icann_rdap_client::rdap::ResponseData;
 use icann_rdap_common::prelude::RdapResponse;
 
 /// Human-readable message for an HTTP-level RDAP error response.

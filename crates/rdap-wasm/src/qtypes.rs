@@ -9,8 +9,8 @@
 //! → `ip_v4_cidr`), plus the special `"auto"` code which preserves the
 //! auto-detecting [`FromStr`] behavior.
 
-use icann_rdap_client::rdap::{QueryType, QueryTypeVariant};
 use icann_rdap_client::RdapClientError;
+use icann_rdap_client::rdap::{QueryType, QueryTypeVariant};
 use serde::Serialize;
 use strum::VariantArray;
 
