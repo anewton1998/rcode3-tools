@@ -34,7 +34,7 @@
                     <button type="button" class="clear_btn" title="Clear"
                             :class="{ 'clear_btn_active': query.length > 0 }"
                             :disabled="query.length === 0"
-                            @click="query = ''; queryType = 'auto'">&#x232B;</button>
+                            @click="query = ''; queryType = 'auto'; $el.parentElement.querySelector('input').focus()">&#x232B;</button>
                     <button id="lookup-btn" class="rcode3_button" :disabled="busy"
                             @click="lookup()">Lookup</button>
                 </div>
