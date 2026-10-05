@@ -112,6 +112,8 @@
 
             async requery(entry) {
                 if (this.busy) return;
+                // Bring the top of the page into view as the re-query runs.
+                window.scrollTo({ top: 0, behavior: 'smooth' });
                 this.query = entry.query;
                 this.queryType = entry.queryType;
                 await this.lookup();
