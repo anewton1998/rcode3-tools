@@ -92,6 +92,42 @@ pub async fn rdap_lookup(query: &str, query_type: Option<String>) -> Result<JsVa
     serde_wasm_bindgen::to_value(&data).map_err(|e| JsValue::from_str(&e.to_string()))
 }
 
+/// Fetches the main response and follows its related referrals, collecting
+/// each outcome so the result HTML and the summary tree are built from the
+/// exact same data — one fetch, no possible disagreement between them.
+async fn fetch_with_referrals(
+    code: &str,
+    value: &str,
+) -> Result<(ResponseData, Vec<custom::ReferralOutcome>), JsValue> {
+    let data = lookup_typed(code, value)
+        .await
+        .map_err(|e| JsValue::from_str(&custom::describe_error(&e)))?;
+    if data.http_data.status_code >= 400 {
+        return Err(JsValue::from_str(&custom::http_error_message(&data)));
+    }
+    let mut referrals = Vec::new();
+    for url in custom::referral_urls(&data) {
+        referrals.push(custom::ReferralOutcome {
+            url: url.clone(),
+            result: lookup_url(&url).await,
+        });
+    }
+    Ok((data, referrals))
+}
+
+/// Renders the concatenated result HTML (main response + referrals).
+fn render_result_html(data: &ResponseData, referrals: &[custom::ReferralOutcome]) -> String {
+    let mut html = custom::render_response_html(data);
+    for outcome in referrals {
+        html.push_str(&custom::referral_divider());
+        match &outcome.result {
+            Ok(referral) => html.push_str(&custom::render_response_html(referral)),
+            Err(e) => html.push_str(&custom::referral_error_note(&outcome.url, e)),
+        }
+    }
+    html
+}
+
 /// Runs an RDAP lookup and resolves with an HTML fragment rendered by the
 /// custom client-side logic in `custom.rs`.
 ///
@@ -99,22 +135,46 @@ pub async fn rdap_lookup(query: &str, query_type: Option<String>) -> Result<JsVa
 /// `None` (or `"auto"`) auto-detects from the query string.
 #[wasm_bindgen]
 pub async fn rdap_lookup_html(query: &str, query_type: Option<String>) -> Result<String, JsValue> {
-    let data = lookup_typed(query_type.as_deref().unwrap_or("auto"), query)
-        .await
-        .map_err(|e| JsValue::from_str(&custom::describe_error(&e)))?;
-    if data.http_data.status_code >= 400 {
-        return Err(JsValue::from_str(&custom::http_error_message(&data)));
-    }
+    let (data, referrals) =
+        fetch_with_referrals(query_type.as_deref().unwrap_or("auto"), query).await?;
+    Ok(render_result_html(&data, &referrals))
+}
 
-    let mut html = custom::render_response_html(&data);
-    for url in custom::referral_urls(&data) {
+/// The payload returned by [`rdap_lookup_with_tree`].
+#[derive(serde::Serialize)]
+struct LookupResult {
+    html: String,
+    tree: String,
+}
+
+/// Runs an RDAP lookup and resolves with `{ html, tree }`. The `html` is the
+/// result-panel fragment with the collapsible box-drawing result tree embedded
+/// directly beneath the host/received banner and above the response body; the
+/// `tree` field carries the same tree lines on their own. Everything derives
+/// from a single fetch, so the tree can never disagree with the rendered body.
+#[wasm_bindgen(js_name = rdapLookupWithTree)]
+pub async fn rdap_lookup_with_tree(
+    query: &str,
+    query_type: Option<String>,
+) -> Result<JsValue, JsValue> {
+    let (data, referrals) =
+        fetch_with_referrals(query_type.as_deref().unwrap_or("auto"), query).await?;
+    let tree_node = custom::build_tree(query, &data, &referrals);
+    let tree = custom::render_tree(&tree_node);
+    // Result-panel order: host/received banner → result tree → response body
+    // → followed referrals (each with its own banner).
+    let mut html = custom::render_response_banner(&data);
+    html.push_str(&custom::tree_block(&tree));
+    html.push_str(&custom::render_response_body(&data));
+    for outcome in &referrals {
         html.push_str(&custom::referral_divider());
-        match lookup_url(&url).await {
-            Ok(referral) => html.push_str(&custom::render_response_html(&referral)),
-            Err(e) => html.push_str(&custom::referral_error_note(&url, &e)),
+        match &outcome.result {
+            Ok(referral) => html.push_str(&custom::render_response_html(referral)),
+            Err(e) => html.push_str(&custom::referral_error_note(&outcome.url, e)),
         }
     }
-    Ok(html)
+    serde_wasm_bindgen::to_value(&LookupResult { html, tree })
+        .map_err(|e| JsValue::from_str(&e.to_string()))
 }
 
 #[cfg(test)]
@@ -181,6 +241,43 @@ mod tests {
         assert!(
             html.contains("<td class=\"data_key\">Name</td>"),
             "missing Name row: {html}"
+        );
+    }
+
+    #[tokio::test]
+    async fn tree_embeds_between_banner_and_body() {
+        // GIVEN the pieces the result panel composes
+        let data = lookup("example.com").await.expect("domain lookup");
+        let tree = custom::render_tree(&custom::build_tree("example.com", &data, &[]));
+        let banner = custom::render_response_banner(&data);
+        let block = custom::tree_block(&tree);
+        let body = custom::render_response_body(&data);
+        // WHEN assembled in the export's order
+        let html = format!("{banner}{block}{body}");
+        // THEN the tree sits after the host/received banner and before the body.
+        let host = html.find("Received").expect("banner received row");
+        let tree_at = html.find("Result tree").expect("tree block");
+        let body_at = html.find("data_title").expect("response body title");
+        assert!(host < tree_at, "tree must come after the banner: {html}");
+        assert!(tree_at < body_at, "tree must come before the body: {html}");
+    }
+
+    #[tokio::test]
+    async fn native_tree_from_real_data() {
+        // GIVEN a real fetched domain response
+        let data = lookup("example.com").await.expect("domain lookup");
+        // WHEN the summary tree is built and rendered over it
+        let tree = custom::render_tree(&custom::build_tree("example.com", &data, &[]));
+        // THEN it shows the query root, the domain response, and box-drawing
+        // connectors, with subordinate groups where the registry provides them.
+        assert!(tree.contains(">query<"), "{tree}");
+        assert!(tree.contains(">domain<"), "{tree}");
+        assert!(tree.contains("example.com"), "{tree}");
+        assert!(tree.contains("├─ ") || tree.contains("└─ "), "{tree}");
+        // example.com carries a registrar entity and nameservers in practice.
+        assert!(
+            tree.contains("entities") || tree.contains("nameservers"),
+            "{tree}"
         );
     }
 }

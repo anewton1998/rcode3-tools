@@ -235,6 +235,54 @@
 	margin: .5rem 0;
 }
 
+/* ---- Summary result tree (box-drawing) ----
+   Sits between the panel header and the history list; the symmetric margins
+   separate it from both. When hidden (x-show) it leaves no trace. */
+.tree_section {
+	margin: 1em 0;
+}
+
+.tree_summary {
+	cursor: pointer;
+	font-weight: var(--theme-primary-font-weight);
+	color: var(--theme-action-color);
+}
+
+.tree_summary:hover {
+	color: var(--theme-accent-color);
+}
+
+/* Monospace is load-bearing: the box-drawing connectors only align when
+   every glyph is the same width. No max-height/overflow here — the tree
+   grows with its content and the surrounding results panel scrolls as one,
+   so there is no nested scrollbar. Long lines wrap in place. */
+.tree_body {
+	margin-top: .4em;
+	font-family: var(--theme-monospace-font-family);
+	font-size: var(--theme-monospace-font-size);
+	white-space: pre-wrap;
+	overflow-wrap: anywhere;
+}
+
+.tree_prefix {
+	color: var(--theme-primary-color);
+	opacity: .45;
+}
+
+.tree_kind {
+	color: var(--theme-info-color);
+}
+
+.tree_meta {
+	opacity: .7;
+}
+
+.tree_error .tree_kind,
+.tree_error .tree_label,
+.tree_error .tree_meta {
+	color: var(--theme-danger-color);
+}
+
 /* responsive stacking on narrow screens */
 @media (max-width: 700px) {
 	.dash_row {

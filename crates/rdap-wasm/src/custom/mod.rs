@@ -6,12 +6,14 @@ mod error;
 mod html;
 mod nameserver;
 mod network;
+mod tree;
 
 use icann_rdap_client::RdapClientError;
 use icann_rdap_client::rdap::ResponseData;
 use icann_rdap_common::prelude::RdapResponse;
 
 pub use error::{describe_error, http_error_message};
+pub(crate) use tree::{ReferralOutcome, build_tree, render_tree, tree_block};
 
 /// Renders the "Response" data table section.
 pub fn render_response_banner(data: &ResponseData) -> String {
@@ -27,8 +29,17 @@ pub fn render_response_banner(data: &ResponseData) -> String {
 
 /// Renders the results-panel HTML for any supported RDAP response.
 pub fn render_response_html(data: &ResponseData) -> String {
-    let authority = data.http_data.host();
     let mut parts = vec![render_response_banner(data)];
+    parts.push(render_response_body(data));
+    parts.join("")
+}
+
+/// Renders the object-class body *without* the leading host/received banner,
+/// so callers can slot other content (e.g. the result tree) between the
+/// banner and the body.
+pub(crate) fn render_response_body(data: &ResponseData) -> String {
+    let authority = data.http_data.host();
+    let mut parts = Vec::new();
     match &data.rdap {
         RdapResponse::Domain(domain) => parts.push(domain::domain_html(domain, authority)),
         RdapResponse::Nameserver(nameserver) => {

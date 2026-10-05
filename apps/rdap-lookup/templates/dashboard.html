@@ -83,7 +83,10 @@
                     time: new Date().toLocaleString(),
                 };
                 try {
-                    this.result = await window.RdapClient.rdap_lookup_html(q, t);
+                    // One fetch yields the result HTML with the result tree
+                    // already embedded beneath the host/received banner.
+                    const r = await window.RdapClient.rdapLookupWithTree(q, t);
+                    this.result = r.html;
                 } catch (e) {
                     entry.status = 'error';
                     entry.error = String(e).slice(0, ERROR_MAX);
