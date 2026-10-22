@@ -7,7 +7,9 @@
 # ---------------------------------------------------------------------------
 FROM rust:1-slim-bookworm AS build
 
-ARG WASM_PACK_VERSION=0.13.1
+ARG WASM_PACK_VERSION=0.15.0
+# TARGETARCH is provided automatically by docker buildx (amd64 | arm64).
+ARG TARGETARCH
 
 # curl/ca-certs are needed to fetch the pinned wasm-pack release.
 RUN apt-get update \
@@ -15,11 +17,18 @@ RUN apt-get update \
     && rm -rf /var/lib/apt/lists/*
 
 # Target required by the wasm crate + the wasm-pack binary itself.
-RUN rustup target add wasm32-unknown-unknown \
-    && curl -fsSL "https://github.com/rustwasm/wasm-pack/releases/download/v${WASM_PACK_VERSION}/wasm-pack-v${WASM_PACK_VERSION}-x86_64-unknown-linux-musl.tar.gz" \
+# wasm-pack release assets are arch-specific, so pick the triple for TARGETARCH.
+RUN set -eux; \
+    case "${TARGETARCH}" in \
+        amd64) WASM_PACK_ARCH=x86_64-unknown-linux-musl ;; \
+        arm64) WASM_PACK_ARCH=aarch64-unknown-linux-musl ;; \
+        *) echo "unsupported TARGETARCH: ${TARGETARCH}" >&2; exit 1 ;; \
+    esac; \
+    rustup target add wasm32-unknown-unknown; \
+    curl -fsSL "https://github.com/wasm-bindgen/wasm-pack/releases/download/v${WASM_PACK_VERSION}/wasm-pack-v${WASM_PACK_VERSION}-${WASM_PACK_ARCH}.tar.gz" \
         | tar -xz -C /usr/local/bin --strip-components=1 \
-            "wasm-pack-v${WASM_PACK_VERSION}-x86_64-unknown-linux-musl/wasm-pack" \
-    && wasm-pack --version
+            "wasm-pack-v${WASM_PACK_VERSION}-${WASM_PACK_ARCH}/wasm-pack"; \
+    wasm-pack --version
 
 WORKDIR /app
 
