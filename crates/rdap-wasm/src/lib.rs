@@ -2,11 +2,14 @@ mod custom;
 mod qtypes;
 
 use std::collections::HashSet;
+use std::str::FromStr;
 use std::sync::Mutex;
 
+use icann_rdap_client::http::default_exts_list;
 use icann_rdap_client::prelude::*;
 use icann_rdap_client::rdap::ResponseData;
 use icann_rdap_client::rdap::redacted::simplify_redactions;
+use icann_rdap_common::prelude::ExtensionId;
 use qtypes::{query_type_from_code, query_type_groups};
 use wasm_bindgen::JsValue;
 use wasm_bindgen::prelude::*;
@@ -14,6 +17,12 @@ use wasm_bindgen::prelude::*;
 pub const DEFAULT_BOOTSTRAP_URL: &str = "https://bootstrap.rcode3.com/rdap";
 
 static BOOTSTRAP_URL: Mutex<Option<String>> = Mutex::new(None);
+
+/// The `exts_list` extension-id set used in the RDAP media type.
+/// `None` (the initial state) resolves to the library's default extension-id
+/// set. An explicit empty set (via the `__none` sentinel) makes
+/// `icann-rdap-client` omit the `exts_list` media-type parameter entirely.
+static EXTS_LIST: Mutex<Option<HashSet<ExtensionId>>> = Mutex::new(None);
 
 fn normalize_base_url(url: &str) -> String {
     url.trim().trim_end_matches('/').to_string()
@@ -40,8 +49,58 @@ pub fn get_bootstrap_url() -> String {
     current_bootstrap_url()
 }
 
+fn current_exts_list() -> HashSet<ExtensionId> {
+    EXTS_LIST
+        .lock()
+        .ok()
+        .and_then(|guard| guard.clone())
+        .unwrap_or_else(default_exts_list)
+}
+
+/// Parses an exts-list spec into a set of RDAP extension ids.
+///
+/// - `__none` -> empty set (client omits the `exts_list` media-type parameter)
+/// - `""` or `default` -> the library's default extension-id set
+/// - otherwise -> comma- and/or space-separated IANA extension ids, e.g. `cidr0 jscontact`
+fn parse_exts_list(spec: &str) -> Result<HashSet<ExtensionId>, String> {
+    let s = spec.trim();
+    if s == "__none" {
+        return Ok(HashSet::new());
+    }
+    if s.is_empty() || s.eq_ignore_ascii_case("default") {
+        return Ok(default_exts_list());
+    }
+    let mut set = HashSet::new();
+    for token in s
+        .split(|c: char| c == ',' || c == ' ')
+        .map(str::trim)
+        .filter(|t| !t.is_empty())
+    {
+        let id = ExtensionId::from_str(token)
+            .map_err(|_| format!("unknown RDAP extension id: {token}"))?;
+        set.insert(id);
+    }
+    Ok(set)
+}
+
+/// Sets the RDAP `exts_list` (see [`parse_exts_list`] for accepted values).
+#[wasm_bindgen(js_name = setExtsList)]
+pub fn set_exts_list(spec: &str) -> Result<(), String> {
+    let set = parse_exts_list(spec)?;
+    *EXTS_LIST.lock().expect("exts list lock poisoned") = Some(set);
+    Ok(())
+}
+
+/// Returns the currently configured extension ids (sorted IANA names).
+#[wasm_bindgen(js_name = getExtsList)]
+pub fn get_exts_list() -> Vec<String> {
+    let mut ids: Vec<String> = current_exts_list().iter().map(|e| e.to_string()).collect();
+    ids.sort();
+    ids
+}
+
 async fn lookup_typed(code: &str, value: &str) -> Result<ResponseData, RdapClientError> {
-    let config = ClientConfig::builder().exts_list(HashSet::new()).build();
+    let config = ClientConfig::builder().exts_list(current_exts_list()).build();
     let client = create_client(&config)?;
     let query_type = query_type_from_code(code, value)?;
     let base_url = current_bootstrap_url();
@@ -194,6 +253,41 @@ mod tests {
     #[test]
     fn default_bootstrap_url() {
         assert_eq!(current_bootstrap_url(), DEFAULT_BOOTSTRAP_URL);
+    }
+
+    #[test]
+    fn exts_list_none_sentinel_is_empty() {
+        assert!(parse_exts_list("__none").unwrap().is_empty());
+    }
+
+    #[test]
+    fn exts_list_default_variants() {
+        // Unset-equivalent (empty/whitespace) and explicit "default" both use the library default.
+        for spec in ["", "   ", "default", "DEFAULT", "Default"] {
+            assert_eq!(
+                parse_exts_list(spec).unwrap(),
+                default_exts_list(),
+                "expected library default for {spec:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn exts_list_explicit_ids() {
+        let comma = parse_exts_list("cidr0,jscontact").unwrap();
+        assert_eq!(comma.len(), 2);
+        assert!(comma.contains(&ExtensionId::Cidr0));
+        assert!(comma.contains(&ExtensionId::JsContact));
+
+        let spaced = parse_exts_list("cidr0 redacted  ttl0").unwrap();
+        assert_eq!(spaced.len(), 3);
+        assert!(spaced.contains(&ExtensionId::Redacted));
+        assert!(spaced.contains(&ExtensionId::Ttl0));
+    }
+
+    #[test]
+    fn exts_list_unknown_id_errors() {
+        assert!(parse_exts_list("cidr0,notanextension").is_err());
     }
 
     #[tokio::test]

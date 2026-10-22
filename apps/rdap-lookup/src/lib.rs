@@ -22,6 +22,7 @@ struct Dashboard {
     base: String,
     home_url: String,
     bootstrap_url: String,
+    exts_list: String,
 }
 
 #[derive(Template)]
@@ -54,6 +55,7 @@ async fn render_dashboard(State(base): State<String>) -> Result<Html<String>, St
         base,
         home_url,
         bootstrap_url: std::env::var("BOOTSTRAP_URL").unwrap_or_default(),
+        exts_list: std::env::var("EXTS_LIST").unwrap_or_default(),
     };
     Ok(Html(page.render().map_err(render_error)?))
 }

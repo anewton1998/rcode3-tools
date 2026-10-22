@@ -173,6 +173,7 @@ wasm build as part of `cargo build`. To force it standalone, use
 | `THEME` | `green_on_black` | Any of the 14 theme names, with or without the `theme_` prefix |
 | `RUST_LOG` | `info` | tracing filter, e.g. `info,rdap_lookup=debug` |
 | `BOOTSTRAP_URL` | `https://bootstrap.rcode3.com/rdap` | RDAP bootstrap redirector for client-side lookups (injected into the page when set; otherwise the wasm default applies) |
+| `EXTS_LIST` | *(empty)* | RDAP `exts_list` media-type parameter: unset/empty uses the library's default extension-id set, `__none` omits the parameter entirely, `default` sets it explicitly, or a comma/space-separated list of IANA ids (e.g. `cidr0 jscontact`) |
 
 ## Vendored assets
 

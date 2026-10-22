@@ -23,6 +23,9 @@
     <meta name="rdap-bootstrap-url" content="{{ bootstrap_url }}">
     <script>window.RDAP_BOOTSTRAP_URL = document.querySelector('meta[name="rdap-bootstrap-url"]').content;</script>
     {% endif %}
+    {% if !exts_list.is_empty() %}
+    <meta name="rdap-exts-list" content="{{ exts_list }}">
+    {% endif %}
 </head>
 <body>
     {% block content %}{% endblock %}
@@ -31,6 +34,14 @@
         await initRdap();
         if (window.RDAP_BOOTSTRAP_URL) {
             RdapClient.set_bootstrap_url(window.RDAP_BOOTSTRAP_URL);
+        }
+        const extsMeta = document.querySelector('meta[name="rdap-exts-list"]');
+        if (extsMeta) {
+            try {
+                RdapClient.setExtsList(extsMeta.content);
+            } catch (e) {
+                console.error('invalid RDAP EXTS_LIST:', e);
+            }
         }
         window.RdapClient = RdapClient;
         window.dispatchEvent(new CustomEvent('rdap-ready'));
