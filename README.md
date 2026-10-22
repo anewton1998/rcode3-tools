@@ -41,14 +41,14 @@ rcode3-tools/
 ```
                         browser
  ┌────────────────────────────────────────────────────────────┐
- │  layout.html (theme class on <html>, loaded from /)        │
- │  ├── /base.css          one global stylesheet              │
- │  ├── htmx.min.js        server round-trips                 │
- │  ├── alpine.min.js      local interactivity                │
- │  └── rdap_wasm.js       window.RdapClient (ES module)      │
+ │  layout.html (theme class on <html>, loaded from /)         │
+ │  ├── /base.css          one global stylesheet               │
+ │  ├── htmx.min.js        server round-trips                  │
+ │  ├── alpine.min.js      local interactivity                 │
+ │  └── rdap_wasm.js       window.RdapClient (ES module)       │
  │        └── rdap_wasm_bg.wasm                                │
-│             icann-rdap-client + custom Rust logic           │
-│             (bootstrap URL redirector → registry RDAP srvrs)│
+ │             icann-rdap-client + custom Rust logic           │
+ │             (bootstrap URL redirector → registry RDAP srvrs)│
  └───────────────┬────────────────────────────┬───────────────┘
                  │ htmx: POST /api/settings   │ direct: https://rdap.<tld>/...
                  ▼                            ▼
@@ -122,7 +122,7 @@ A `cdylib` that runs in the browser via wasm-bindgen. It wraps
 
 **Bootstrapping**: lookups go through a single configurable *bootstrap URL* —
 a redirector that 302s each query to the correct registry server — instead of
-fetching IANA bootstrap JSON. The default is `https://rdap.org`. It can be
+fetching IANA bootstrap JSON. The default is `https://bootstrap.rcode3.com/rdap`. It can be
 changed at runtime with `RdapClient.set_bootstrap_url(url)` (trailing slashes
 are trimmed), or page-wide by setting `window.RDAP_BOOTSTRAP_URL` before the
 module script runs; `RdapClient.getBootstrapUrl()` returns the current value.
@@ -172,7 +172,7 @@ wasm build as part of `cargo build`. To force it standalone, use
 | `PORT` | `3000` | Listen port (must be a valid u16) |
 | `THEME` | `green_on_black` | Any of the 14 theme names, with or without the `theme_` prefix |
 | `RUST_LOG` | `info` | tracing filter, e.g. `info,rdap_lookup=debug` |
-| `BOOTSTRAP_URL` | `https://rdap.org` | RDAP bootstrap redirector for client-side lookups (injected into the page when set; otherwise the wasm default applies) |
+| `BOOTSTRAP_URL` | `https://bootstrap.rcode3.com/rdap` | RDAP bootstrap redirector for client-side lookups (injected into the page when set; otherwise the wasm default applies) |
 
 ## Vendored assets
 

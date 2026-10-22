@@ -11,7 +11,7 @@ use qtypes::{query_type_from_code, query_type_groups};
 use wasm_bindgen::JsValue;
 use wasm_bindgen::prelude::*;
 
-pub const DEFAULT_BOOTSTRAP_URL: &str = "https://rdap.org";
+pub const DEFAULT_BOOTSTRAP_URL: &str = "https://bootstrap.rcode3.com/rdap";
 
 static BOOTSTRAP_URL: Mutex<Option<String>> = Mutex::new(None);
 
@@ -183,8 +183,8 @@ mod tests {
 
     #[test]
     fn bootstrap_url_normalization() {
-        assert_eq!(normalize_base_url("https://rdap.org"), "https://rdap.org");
-        assert_eq!(normalize_base_url("https://rdap.org/"), "https://rdap.org");
+        assert_eq!(normalize_base_url("https://bootstrap.rcode3.com/rdap"), "https://bootstrap.rcode3.com/rdap");
+        assert_eq!(normalize_base_url("https://bootstrap.rcode3.com/rdap/"), "https://bootstrap.rcode3.com/rdap");
         assert_eq!(
             normalize_base_url("  https://example.com/rdap//  "),
             "https://example.com/rdap"
