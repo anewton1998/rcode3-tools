@@ -1,0 +1,14 @@
+# Build artifacts (huge; force a clean build inside the image)
+target/
+
+# VCS + local config
+.git/
+.gitignore
+.env
+
+# Editor / OS noise
+**/*.swp
+**/.DS_Store
+
+# Note: assets/ is intentionally NOT ignored — the apps' static/{fonts,images,js}
+# symlinks resolve into it during the build stage.
