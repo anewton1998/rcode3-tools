@@ -172,6 +172,7 @@ wasm build as part of `cargo build`. To force it standalone, use
 | `PORT` | `3000` | Listen port (must be a valid u16) |
 | `THEME` | `green_on_black` | Any of the 14 theme names, with or without the `theme_` prefix |
 | `RUST_LOG` | `info` | tracing filter, e.g. `info,rdap_lookup=debug` |
+| `BOOTSTRAP_URL` | `https://rdap.org` | RDAP bootstrap redirector for client-side lookups (injected into the page when set; otherwise the wasm default applies) |
 
 ## Vendored assets
 

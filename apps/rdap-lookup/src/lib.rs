@@ -21,6 +21,7 @@ struct Dashboard {
     theme: &'static str,
     base: String,
     home_url: String,
+    bootstrap_url: String,
 }
 
 #[derive(Template)]
@@ -52,6 +53,7 @@ async fn render_dashboard(State(base): State<String>) -> Result<Html<String>, St
         theme: Theme::from_env().class_name(),
         base,
         home_url,
+        bootstrap_url: std::env::var("BOOTSTRAP_URL").unwrap_or_default(),
     };
     Ok(Html(page.render().map_err(render_error)?))
 }

@@ -19,6 +19,10 @@
     <meta name="twitter:card" content="summary_large_image">
     <meta name="twitter:image" content="https://rcode3.com/og-image.png">
     <link rel="stylesheet" href="{{ base }}/base.css" />
+    {% if !bootstrap_url.is_empty() %}
+    <meta name="rdap-bootstrap-url" content="{{ bootstrap_url }}">
+    <script>window.RDAP_BOOTSTRAP_URL = document.querySelector('meta[name="rdap-bootstrap-url"]').content;</script>
+    {% endif %}
 </head>
 <body>
     {% block content %}{% endblock %}
