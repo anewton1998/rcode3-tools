@@ -1,5 +1,5 @@
 [package]
-name = "rdap-lookup"
+name = "rdap-explorer"
 version.workspace = true
 edition.workspace = true
 

@@ -1,6 +1,6 @@
 {% extends "layout.html" %}
 
-{% block title %}Dashboard · RDAP Lookup{% endblock %}
+{% block title %}Dashboard · RDAP Explorer{% endblock %}
 
 {% block content %}
 <script>
@@ -85,7 +85,7 @@
                 try {
                     // One fetch yields the result HTML with the result tree
                     // already embedded beneath the host/received banner.
-                    const r = await window.RdapClient.rdapLookupWithTree(q, t);
+                    const r = await window.RdapClient.rdapExplorerWithTree(q, t);
                     this.result = r.html;
                 } catch (e) {
                     entry.status = 'error';
@@ -171,7 +171,7 @@
 <main class="main_panel">
     <header class="site_banner">
         <a href="{{ home_url }}"><img src="{{ base }}/static/images/logo-1024.png" alt="rcode3 logo" class="site_logo"></a>
-        <rcode3-site-name>rdap lookup</rcode3-site-name>
+        <rcode3-site-name>rdap explorer</rcode3-site-name>
     </header>
 
     <div class="dashboard_body" x-data="rdapDashboard()">

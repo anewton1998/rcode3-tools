@@ -9,7 +9,7 @@
 	pointer-events: none;
 }
 
-/* RDAP Lookup dashboard layout */
+/* RDAP Explorer dashboard layout */
 .dashboard_body {
 	display: flex;
 	flex-direction: column;

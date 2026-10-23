@@ -16,7 +16,7 @@ async fn main() {
     };
     let base = std::env::var("BASE_PATH").unwrap_or_else(|_| "/".to_string());
 
-    let app = rdap_lookup::router(&base);
+    let app = rdap_explorer::router(&base);
 
     let listener = tokio::net::TcpListener::bind((host.as_str(), port))
         .await

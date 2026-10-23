@@ -15,11 +15,11 @@ async fn main() {
         Err(_) => 8080,
     };
 
-    let app = rcode3_home::router("/").merge(rdap_lookup::router("/rdap-lookup"));
+    let app = rcode3_home::router("/").merge(rdap_explorer::router("/rdap-explorer"));
 
     let listener = tokio::net::TcpListener::bind((host.as_str(), port))
         .await
         .unwrap();
-    tracing::info!(%host, port, "listening (home at /, rdap-lookup at /rdap-lookup)");
+    tracing::info!(%host, port, "listening (home at /, rdap-explorer at /rdap-explorer)");
     axum::serve(listener, app).await.unwrap();
 }

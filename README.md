@@ -1,6 +1,6 @@
 # rcode3-tools
 
-A server-rendered web toolkit built in Rust. The current app, **rdap-lookup**, is an
+A server-rendered web toolkit built in Rust. The current app, **rdap-explorer**, is an
 axum web service that combines three client-side strategies behind a single page:
 
 - **HTMX** for server round-trips (HTML fragment swapping)
@@ -17,7 +17,7 @@ libraries and fonts are vendored into git; the wasm module is built by `wasm-pac
 ```
 rcode3-tools/
 ├── apps/
-│   └── rdap-lookup/          # axum web app (the runnable service)
+│   └── rdap-explorer/          # axum web app (the runnable service)
 │       ├── build.rs          # auto-rebuilds the wasm module when it changes
 │       ├── src/main.rs
 │       ├── templates/        # layout.html, dashboard.html, status.html
@@ -52,10 +52,10 @@ rcode3-tools/
  └───────────────┬────────────────────────────┬───────────────┘
                  │ htmx: POST /api/settings   │ direct: https://rdap.<tld>/...
                  ▼                            ▼
-        axum (apps/rdap-lookup)         public RDAP endpoints
+        axum (apps/rdap-explorer)         public RDAP endpoints
 ```
 
-### apps/rdap-lookup
+### apps/rdap-explorer
 
 An axum service. Routes:
 
@@ -129,8 +129,8 @@ module script runs; `RdapClient.getBootstrapUrl()` returns the current value.
 
 Exports:
 
-- `rdap_lookup(query) → Promise<object>` — full parsed RDAP response as a JS object
-- `rdap_lookup_html(query) → Promise<string>` — HTML fragment produced by the
+- `rdap_explorer(query) → Promise<object>` — full parsed RDAP response as a JS object
+- `rdap_explorer_html(query) → Promise<string>` — HTML fragment produced by the
   **custom client-side logic** in `src/custom.rs` (currently a domain summary);
   that module is where further browser-side Rust belongs
 
@@ -156,7 +156,7 @@ Prerequisites: a Rust toolchain with the `wasm32-unknown-unknown` target
 
 ```sh
 cp .env.example .env   # or create .env; all values have defaults
-cargo run -p rdap-lookup
+cargo run -p rdap-explorer
 # → http://127.0.0.1:3000
 ```
 
@@ -171,7 +171,7 @@ wasm build as part of `cargo build`. To force it standalone, use
 | `HOST` | `127.0.0.1` | Listen address |
 | `PORT` | `3000` | Listen port (must be a valid u16) |
 | `THEME` | `green_on_black` | Any of the 14 theme names, with or without the `theme_` prefix |
-| `RUST_LOG` | `info` | tracing filter, e.g. `info,rdap_lookup=debug` |
+| `RUST_LOG` | `info` | tracing filter, e.g. `info,rdap_explorer=debug` |
 | `BOOTSTRAP_URL` | `https://bootstrap.rcode3.com/rdap` | RDAP bootstrap redirector for client-side lookups (injected into the page when set; otherwise the wasm default applies) |
 | `EXTS_LIST` | *(empty)* | RDAP `exts_list` media-type parameter: unset/empty uses the library's default extension-id set, `__none` omits the parameter entirely, `default` sets it explicitly, or a comma/space-separated list of IANA ids (e.g. `cidr0 jscontact`) |
 

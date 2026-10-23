@@ -71,11 +71,7 @@ fn parse_exts_list(spec: &str) -> Result<HashSet<ExtensionId>, String> {
         return Ok(default_exts_list());
     }
     let mut set = HashSet::new();
-    for token in s
-        .split(|c: char| c == ',' || c == ' ')
-        .map(str::trim)
-        .filter(|t| !t.is_empty())
-    {
+    for token in s.split([',', ' ']).map(str::trim).filter(|t| !t.is_empty()) {
         let id = ExtensionId::from_str(token)
             .map_err(|_| format!("unknown RDAP extension id: {token}"))?;
         set.insert(id);
@@ -100,7 +96,9 @@ pub fn get_exts_list() -> Vec<String> {
 }
 
 async fn lookup_typed(code: &str, value: &str) -> Result<ResponseData, RdapClientError> {
-    let config = ClientConfig::builder().exts_list(current_exts_list()).build();
+    let config = ClientConfig::builder()
+        .exts_list(current_exts_list())
+        .build();
     let client = create_client(&config)?;
     let query_type = query_type_from_code(code, value)?;
     let base_url = current_bootstrap_url();
@@ -144,7 +142,7 @@ pub fn query_type_groups_export() -> Result<JsValue, JsValue> {
 /// `query_type` selects the [`QueryType`] to build (see `queryTypeGroups`);
 /// `None` (or `"auto"`) auto-detects from the query string.
 #[wasm_bindgen]
-pub async fn rdap_lookup(query: &str, query_type: Option<String>) -> Result<JsValue, JsValue> {
+pub async fn rdap_explorer(query: &str, query_type: Option<String>) -> Result<JsValue, JsValue> {
     let data = lookup_typed(query_type.as_deref().unwrap_or("auto"), query)
         .await
         .map_err(|e| JsValue::from_str(&custom::describe_error(&e)))?;
@@ -193,13 +191,16 @@ fn render_result_html(data: &ResponseData, referrals: &[custom::ReferralOutcome]
 /// `query_type` selects the [`QueryType`] to build (see `queryTypeGroups`);
 /// `None` (or `"auto"`) auto-detects from the query string.
 #[wasm_bindgen]
-pub async fn rdap_lookup_html(query: &str, query_type: Option<String>) -> Result<String, JsValue> {
+pub async fn rdap_explorer_html(
+    query: &str,
+    query_type: Option<String>,
+) -> Result<String, JsValue> {
     let (data, referrals) =
         fetch_with_referrals(query_type.as_deref().unwrap_or("auto"), query).await?;
     Ok(render_result_html(&data, &referrals))
 }
 
-/// The payload returned by [`rdap_lookup_with_tree`].
+/// The payload returned by [`rdap_explorer_with_tree`].
 #[derive(serde::Serialize)]
 struct LookupResult {
     html: String,
@@ -211,8 +212,8 @@ struct LookupResult {
 /// directly beneath the host/received banner and above the response body; the
 /// `tree` field carries the same tree lines on their own. Everything derives
 /// from a single fetch, so the tree can never disagree with the rendered body.
-#[wasm_bindgen(js_name = rdapLookupWithTree)]
-pub async fn rdap_lookup_with_tree(
+#[wasm_bindgen(js_name = rdapExplorerWithTree)]
+pub async fn rdap_explorer_with_tree(
     query: &str,
     query_type: Option<String>,
 ) -> Result<JsValue, JsValue> {
@@ -242,8 +243,14 @@ mod tests {
 
     #[test]
     fn bootstrap_url_normalization() {
-        assert_eq!(normalize_base_url("https://bootstrap.rcode3.com/rdap"), "https://bootstrap.rcode3.com/rdap");
-        assert_eq!(normalize_base_url("https://bootstrap.rcode3.com/rdap/"), "https://bootstrap.rcode3.com/rdap");
+        assert_eq!(
+            normalize_base_url("https://bootstrap.rcode3.com/rdap"),
+            "https://bootstrap.rcode3.com/rdap"
+        );
+        assert_eq!(
+            normalize_base_url("https://bootstrap.rcode3.com/rdap/"),
+            "https://bootstrap.rcode3.com/rdap"
+        );
         assert_eq!(
             normalize_base_url("  https://example.com/rdap//  "),
             "https://example.com/rdap"
@@ -315,7 +322,7 @@ mod tests {
 
     #[tokio::test]
     async fn native_domain_lookup_html_includes_referral_divider() {
-        let html = rdap_lookup_html("icann.org", None)
+        let html = rdap_explorer_html("icann.org", None)
             .await
             .expect("lookup html");
         assert!(

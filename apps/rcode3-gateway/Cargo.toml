@@ -6,7 +6,7 @@ edition.workspace = true
 [dependencies]
 axum.workspace = true
 dotenvy.workspace = true
-rdap-lookup = { path = "../rdap-lookup" }
+rdap-explorer = { path = "../rdap-explorer" }
 rcode3-home = { path = "../rcode3-home" }
 tokio.workspace = true
 tracing.workspace = true

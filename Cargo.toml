@@ -6,7 +6,7 @@ edition = "2024"
 members = [
     "crates/ui-components",
     "crates/rdap-wasm",
-    "apps/rdap-lookup",
+    "apps/rdap-explorer",
     "apps/rcode3-home",
     "apps/rcode3-gateway",
 ]

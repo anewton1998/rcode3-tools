@@ -1464,7 +1464,7 @@ dependencies = [
  "axum",
  "dotenvy",
  "rcode3-home",
- "rdap-lookup",
+ "rdap-explorer",
  "tokio",
  "tracing",
  "tracing-subscriber",
@@ -1485,7 +1485,7 @@ dependencies = [
 ]
 
 [[package]]
-name = "rdap-lookup"
+name = "rdap-explorer"
 version = "0.1.0"
 dependencies = [
  "askama",
