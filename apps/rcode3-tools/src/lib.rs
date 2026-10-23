@@ -9,13 +9,13 @@ use axum::{
 use tower_http::services::ServeDir;
 use tower_http::trace::{DefaultMakeSpan, DefaultOnResponse, TraceLayer};
 use tracing::Level;
-use ui_components::Theme;
+use ui_components::{Theme, ThemeAppSelect};
 
 #[derive(Template)]
 #[template(path = "home.html")]
 struct Home {
     theme: &'static str,
-    themes: Vec<Theme>,
+    theme_app_html: String,
     base: String,
 }
 
@@ -24,9 +24,10 @@ fn render_error(_: askama::Error) -> StatusCode {
 }
 
 async fn render_home(State(base): State<String>) -> Result<Html<String>, StatusCode> {
+    let theme_app_html = ThemeAppSelect::new().render().map_err(render_error)?;
     let page = Home {
         theme: Theme::from_env().class_name(),
-        themes: Theme::all().to_vec(),
+        theme_app_html,
         base,
     };
     Ok(Html(page.render().map_err(render_error)?))

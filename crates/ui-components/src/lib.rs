@@ -6,6 +6,7 @@ pub mod components {
     pub mod status_text;
     pub mod text_area;
     pub mod text_input;
+    pub mod theme_app_select;
 }
 
 pub mod theme;
@@ -17,6 +18,7 @@ pub use components::select::{Select, SelectOption};
 pub use components::status_text::{StatusLevel, StatusText};
 pub use components::text_area::TextArea;
 pub use components::text_input::TextInput;
+pub use components::theme_app_select::{AppLink, ThemeAppSelect, APP_LINKS};
 pub use theme::Theme;
 
 pub fn global_css() -> &'static str {

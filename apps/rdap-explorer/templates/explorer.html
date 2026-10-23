@@ -172,6 +172,7 @@
     <header class="site_banner">
         <a href="{{ home_url }}"><img src="{{ base }}/static/images/logo-1024.png" alt="rcode3 logo" class="site_logo"></a>
         <rcode3-site-name>rdap explorer</rcode3-site-name>
+        {{ theme_app_html|safe }}
     </header>
 
     <div class="explorer_body" x-data="rdapExplorer()">

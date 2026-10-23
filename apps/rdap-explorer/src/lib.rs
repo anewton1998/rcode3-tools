@@ -10,7 +10,7 @@ use tower_http::services::ServeDir;
 use tower_http::set_header::SetResponseHeaderLayer;
 use tower_http::trace::{DefaultMakeSpan, DefaultOnResponse, TraceLayer};
 use tracing::Level;
-use ui_components::{ProgressBar, Select, TextInput, Theme};
+use ui_components::{ProgressBar, Select, TextInput, Theme, ThemeAppSelect};
 
 #[derive(Template)]
 #[template(path = "explorer.html")]
@@ -18,6 +18,7 @@ struct Explorer {
     search_input_html: String,
     query_type_select_html: String,
     progress_bar_html: String,
+    theme_app_html: String,
     theme: &'static str,
     base: String,
     home_url: String,
@@ -51,6 +52,7 @@ async fn render_explorer(State(base): State<String>) -> Result<Html<String>, Sta
         search_input_html: search_input.render().map_err(render_error)?,
         query_type_select_html: query_type_select.render().map_err(render_error)?,
         progress_bar_html: ProgressBar.render().map_err(render_error)?,
+        theme_app_html: ThemeAppSelect::new().render().map_err(render_error)?,
         theme: Theme::from_env().class_name(),
         base,
         home_url,

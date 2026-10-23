@@ -1,0 +1,34 @@
+<nav class="theme_app_nav" aria-label="Theme and apps">
+  {# Wide screens: a single combined select. App options carry data-app so the
+     shared JS navigates instead of switching theme. #}
+  <select class="theme_app_select rcode3_select" aria-label="Theme and apps">
+    <optgroup label="Apps">
+      {%- for a in apps %}
+      <option value="{{ a.url }}" data-app="{{ a.url }}">{{ a.label }}</option>
+      {%- endfor %}
+    </optgroup>
+    <optgroup label="Theme">
+      {%- for t in themes %}
+      <option value="{{ t.class_name() }}">{{ t.label() }}</option>
+      {%- endfor %}
+    </optgroup>
+  </select>
+
+  {# Narrow screens: hamburger that opens the same items as a menu. #}
+  <button type="button" class="theme_app_burger" aria-expanded="false"
+          aria-controls="theme_app_menu" aria-label="Open menu">&#9776;</button>
+  <div id="theme_app_menu" class="theme_app_menu" hidden>
+    <p class="theme_app_menu_heading">Apps</p>
+    <ul class="theme_app_menu_apps">
+      {%- for a in apps %}
+      <li><a href="{{ a.url }}">{{ a.label }}</a></li>
+      {%- endfor %}
+    </ul>
+    <p class="theme_app_menu_heading">Theme</p>
+    <ul class="theme_app_menu_themes">
+      {%- for t in themes %}
+      <li><button type="button" class="theme_app_theme" data-theme="{{ t.class_name() }}">{{ t.label() }}</button></li>
+      {%- endfor %}
+    </ul>
+  </div>
+</nav>

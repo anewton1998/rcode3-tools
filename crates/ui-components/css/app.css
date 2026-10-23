@@ -417,3 +417,106 @@
 .check-icon {
 	color: var(--theme-accent-color);
 }
+
+/* Combined theme + apps control in the site banner.
+   Wide: inline select. Narrow (<=700px): hamburger + dropdown menu.
+   The two views are both rendered; CSS media queries switch between them. */
+.theme_app_nav {
+	margin-left: auto;
+	position: relative;
+	display: inline-flex;
+	align-items: center;
+}
+
+.theme_app_select {
+	min-width: 11rem;
+}
+
+/* Hidden by default on wide screens. */
+.theme_app_burger,
+.theme_app_menu {
+	display: none;
+}
+
+.theme_app_burger {
+	font-size: 1.4rem;
+	line-height: 1;
+	padding: .1rem .55rem;
+	background: none;
+	color: var(--theme-primary-color);
+	border: thin solid var(--theme-primary-color);
+	border-radius: .25rem;
+	cursor: pointer;
+}
+
+.theme_app_burger:hover {
+	color: var(--theme-accent-color);
+	border-color: var(--theme-accent-color);
+}
+
+.theme_app_menu {
+	position: absolute;
+	top: calc(100% + .4rem);
+	right: 0;
+	z-index: 50;
+	min-width: 12rem;
+	padding: .5rem .75rem;
+	background-color: var(--theme-sub-section-background-color);
+	border: thin solid var(--theme-primary-color);
+	border-radius: .25rem;
+}
+
+.theme_app_menu_heading {
+	margin: .25rem 0;
+	font-size: .72rem;
+	font-weight: bold;
+	text-transform: uppercase;
+	letter-spacing: .04em;
+	color: var(--theme-primary-color);
+}
+
+.theme_app_menu ul {
+	list-style: none;
+	margin: 0 0 .5rem;
+	padding: 0;
+}
+
+.theme_app_menu li {
+	margin: .15rem 0;
+}
+
+.theme_app_menu a,
+.theme_app_theme {
+	display: block;
+	width: 100%;
+	padding: .15rem 0;
+	font: inherit;
+	text-align: left;
+	background: none;
+	border: none;
+	color: var(--theme-primary-color);
+	cursor: pointer;
+}
+
+.theme_app_menu a:hover,
+.theme_app_theme:hover {
+	color: var(--theme-accent-color);
+}
+
+.theme_app_theme[aria-current="true"] {
+	font-weight: bold;
+}
+
+@media (max-width: 700px) {
+	.theme_app_select {
+		display: none;
+	}
+
+	.theme_app_burger {
+		display: inline-block;
+	}
+
+	.theme_app_menu:not([hidden]) {
+		display: block;
+	}
+}
