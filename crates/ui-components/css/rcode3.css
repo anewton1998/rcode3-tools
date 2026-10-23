@@ -261,10 +261,10 @@ label {
 }
 
 .theme_white_on_blue {
-	--theme-background-color: #006;
+	--theme-background-color: #012b65;
 	--theme-placeholder-color: #8ea6cf;
 	--theme-alt-background-color: #081979;
-	--theme-sub-section-background-color: #03105c;
+	--theme-sub-section-background-color: #041a3b;
 	--theme-site-name-background-color: white;
 	--theme-site-name-color: darkblue;
 	--theme-site-name-action-color: rgb(2, 161, 17);
@@ -297,10 +297,11 @@ label {
 }
 
 .theme_white_on_blue_with_green {
-	--theme-background-color: #006;
+	--theme-background-color: #012b65;
 	--theme-placeholder-color: #8ea6cf;
 	--theme-alt-background-color: #081979;
 	--theme-sub-section-background-color: #03105c;
+	--theme-sub-section-background-color: #041a3b;
 	--theme-site-name-background-color: #8B8B00;
 	--theme-site-name-color: darkblue;
 	--theme-site-name-action-color: black;
