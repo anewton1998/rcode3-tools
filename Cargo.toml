@@ -16,8 +16,8 @@ resolver = "2"
 askama = { version = "0.16", features = ["full"] }
 axum = "0.8"
 dotenvy = "0.15"
-icann-rdap-client = "1.0"
-icann-rdap-common = "1.0"
+icann-rdap-client = { git = "https://github.com/icann/icann-rdap.git", branch = "dev" }
+icann-rdap-common = { git = "https://github.com/icann/icann-rdap.git", branch = "dev" }
 js-sys = "0.3"
 serde-wasm-bindgen = "0.6"
 tokio = { version = "1", features = ["full"] }

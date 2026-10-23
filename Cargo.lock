@@ -752,9 +752,8 @@ dependencies = [
 
 [[package]]
 name = "icann-rdap-client"
-version = "1.0.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "4ff5ba491a272fedc03ffa6c1b6d277f75c8350fadb657fe46ca48994048f71e"
+version = "1.0.1"
+source = "git+https://github.com/icann/icann-rdap.git?branch=dev#8476c893250249ccc5ba7df71d7b3d7cd6a508a7"
 dependencies = [
  "buildstructor",
  "chrono",
@@ -778,9 +777,8 @@ dependencies = [
 
 [[package]]
 name = "icann-rdap-common"
-version = "1.0.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "367df35b052ef0c7ce01e06db6062bb49751f97b493ad2ac2aa7ecbd78d63f39"
+version = "1.0.1"
+source = "git+https://github.com/icann/icann-rdap.git?branch=dev#8476c893250249ccc5ba7df71d7b3d7cd6a508a7"
 dependencies = [
  "buildstructor",
  "chrono",
