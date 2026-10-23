@@ -18,7 +18,7 @@ pub use components::select::{Select, SelectOption};
 pub use components::status_text::{StatusLevel, StatusText};
 pub use components::text_area::TextArea;
 pub use components::text_input::TextInput;
-pub use components::theme_app_select::{AppLink, ThemeAppSelect, APP_LINKS};
+pub use components::theme_app_select::{APP_LINKS, AppLink, ThemeAppSelect};
 pub use theme::Theme;
 
 pub fn global_css() -> &'static str {
