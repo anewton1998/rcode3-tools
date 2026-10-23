@@ -12,6 +12,7 @@ pub enum Theme {
     AmberOnBlackWithBlue,
     BlueOnWhite,
     BlueOnBlack,
+    BlueOnBlackWithIndigo,
     Tandy400,
     Botho,
 }
@@ -33,6 +34,7 @@ impl Theme {
             Theme::AmberOnBlackWithBlue => "theme_amber_on_black_with_blue",
             Theme::BlueOnWhite => "theme_blue_on_white",
             Theme::BlueOnBlack => "theme_blue_on_black",
+            Theme::BlueOnBlackWithIndigo => "theme_blue_on_black_with_indigo",
             Theme::Tandy400 => "theme_tandy_400",
             Theme::Botho => "theme_botho",
         }
@@ -52,6 +54,7 @@ impl Theme {
             Theme::AmberOnBlackWithBlue,
             Theme::BlueOnWhite,
             Theme::BlueOnBlack,
+            Theme::BlueOnBlackWithIndigo,
             Theme::Tandy400,
             Theme::Botho,
         ]
@@ -71,6 +74,7 @@ impl Theme {
             Theme::AmberOnBlackWithBlue => "Amber on black (blue)",
             Theme::BlueOnWhite => "Blue on white",
             Theme::BlueOnBlack => "Blue on black",
+            Theme::BlueOnBlackWithIndigo => "Blue on black (indigo)",
             Theme::Tandy400 => "Tandy 400",
             Theme::Botho => "Botho",
         }
@@ -98,6 +102,7 @@ impl Theme {
             "amber_on_black_with_blue" => Theme::AmberOnBlackWithBlue,
             "blue_on_white" => Theme::BlueOnWhite,
             "blue_on_black" => Theme::BlueOnBlack,
+            "blue_on_black_with_indigo" => Theme::BlueOnBlackWithIndigo,
             "tandy_400" => Theme::Tandy400,
             "botho" => Theme::Botho,
             _ => return None,

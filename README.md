@@ -30,7 +30,7 @@ rcode3-tools/
 │   │   ├── css/              # fonts.css, rcode3.css, app.css
 │   │   ├── src/components/   # button, text_input, text_area, status_text,
 │   │   │                     # progress_bar, link_nav
-│   │   └── src/theme.rs      # the 14-theme enum
+│   │   └── src/theme.rs      # the 15-theme enum
 │   └── rdap-wasm/            # wasm-bindgen crate wrapping icann-rdap-* crates
 ├── scripts/build-wasm.sh     # convenience alias for the wasm build path
 └── .env                      # gitignored: HOST, PORT, THEME
@@ -86,7 +86,7 @@ The design system. Two parts:
 
 1. `fonts.css` — `@font-face` rules for the vendored woff2 files
 2. `rcode3.css` — the rcode3 design system (originally derived from the dialtone
-   project and rebranded): 14 themes as CSS custom-property sets plus component
+   project and rebranded): 15 themes as CSS custom-property sets plus component
    classes with the `rcode3_` prefix
 3. `app.css` — thin app-level layer (button padding, `.htmx-request` dimming)
 
@@ -110,7 +110,7 @@ Layout composites (`basic_form`, `asymmetrical_split_page`, header tables,
 `clickable_div`, …) are used directly as CSS classes in page templates rather
 than being wrapped as components.
 
-**Themes** — `Theme` (in `src/theme.rs`) covers all 14 themes; `Theme::from_env()`
+**Themes** — `Theme` (in `src/theme.rs`) covers all 15 themes; `Theme::from_env()`
 reads the `THEME` variable and falls back to `green_on_black` for unknown values.
 The chosen class is placed on `<html>` by `layout.html`.
 
@@ -170,7 +170,7 @@ wasm build as part of `cargo build`. To force it standalone, use
 |---|---|---|
 | `HOST` | `127.0.0.1` | Listen address |
 | `PORT` | `3000` | Listen port (must be a valid u16) |
-| `THEME` | `green_on_black` | Any of the 14 theme names, with or without the `theme_` prefix |
+| `THEME` | `green_on_black` | Any of the 15 theme names, with or without the `theme_` prefix |
 | `RUST_LOG` | `info` | tracing filter, e.g. `info,rdap_explorer=debug` |
 | `BOOTSTRAP_URL` | `https://bootstrap.rcode3.com/rdap` | RDAP bootstrap redirector for client-side lookups (injected into the page when set; otherwise the wasm default applies) |
 | `EXTS_LIST` | *(empty)* | RDAP `exts_list` media-type parameter: unset/empty uses the library's default extension-id set, `__none` omits the parameter entirely, `default` sets it explicitly, or a comma/space-separated list of IANA ids (e.g. `cidr0 jscontact`) |

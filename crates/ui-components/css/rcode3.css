@@ -476,6 +476,42 @@ label {
 	--theme-a-text-decoration: underline;
 }
 
+.theme_blue_on_black_with_indigo {
+	--theme-background-color: #222;
+	--theme-placeholder-color: #4d7ab5;
+	--theme-alt-background-color: #312f2f;
+	--theme-sub-section-background-color: #201e1e;
+	--theme-site-name-background-color: rgb(129, 140, 248);
+	--theme-site-name-color: #222;
+	--theme-site-name-action-color: whitesmoke;
+
+	--theme-primary-color: rgb(52, 151, 251);
+	--theme-accent-color: rgb(129, 140, 248);
+	--theme-info-color: rgb(204, 167, 0);
+	--theme-action-color: whitesmoke;
+	--theme-disabled-color: gray;
+	--theme-warn-color: rgb(238, 255, 0);
+	--theme-danger-color: red;
+
+	--theme-primary-font-family: 'Poppins', sans-serif;
+	--theme-primary-font-weight: 400;
+	--theme-primary-font-size: 1rem;
+
+	--theme-site-name-font-family: 'Goldman', cursive;
+	--theme-site-name-font-weight: 400;
+	--theme-site-name-font-size: 2rem;
+
+	--theme-panel-header-font-family: 'Goldman', cursive;
+	--theme-panel-header-font-weight: 400;
+	--theme-panel-header-font-size: 1.2rem;
+
+	--theme-monospace-font-family: 'Inconsolata', monospace;
+	--theme-monospace-font-weight: 500;
+	--theme-monospace-font-size: 1rem;
+
+	--theme-a-text-decoration: underline;
+}
+
 .theme_tandy_400 {
 	--theme-background-color: #db1515;
 	--theme-placeholder-color: #e3c3c3;
