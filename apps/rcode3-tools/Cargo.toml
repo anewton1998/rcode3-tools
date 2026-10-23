@@ -1,5 +1,5 @@
 [package]
-name = "rcode3-home"
+name = "rcode3-tools"
 version.workspace = true
 edition.workspace = true
 

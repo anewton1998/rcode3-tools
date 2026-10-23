@@ -16,7 +16,7 @@ async fn main() {
     };
     let base = std::env::var("BASE_PATH").unwrap_or_else(|_| "/".to_string());
 
-    let app = rcode3_home::router(&base);
+    let app = rcode3_tools::router(&base);
 
     let listener = tokio::net::TcpListener::bind((host.as_str(), port))
         .await

@@ -15,7 +15,7 @@ async fn main() {
         Err(_) => 8080,
     };
 
-    let app = rcode3_home::router("/").merge(rdap_explorer::router("/rdap-explorer"));
+    let app = rcode3_tools::router("/").merge(rdap_explorer::router("/rdap-explorer"));
 
     let listener = tokio::net::TcpListener::bind((host.as_str(), port))
         .await
