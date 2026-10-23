@@ -520,3 +520,18 @@
 		display: block;
 	}
 }
+
+/* rcode3-tools home: content sections rendered as themed panels.
+   The feature cards sit in a responsive grid so they line up as a row of
+   panels on wide screens and stack on narrow ones. `.panel` carries no
+   margin, so the grid gap provides the spacing. */
+.hero_panel {
+	margin-top: 1em;
+}
+
+.home_features {
+	display: grid;
+	grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+	gap: 1em;
+	margin-top: 1em;
+}
