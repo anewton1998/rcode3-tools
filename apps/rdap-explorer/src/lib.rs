@@ -13,8 +13,8 @@ use tracing::Level;
 use ui_components::{ProgressBar, Select, TextInput, Theme};
 
 #[derive(Template)]
-#[template(path = "dashboard.html")]
-struct Dashboard {
+#[template(path = "explorer.html")]
+struct Explorer {
     search_input_html: String,
     query_type_select_html: String,
     progress_bar_html: String,
@@ -35,7 +35,7 @@ fn render_error(_: askama::Error) -> StatusCode {
     StatusCode::INTERNAL_SERVER_ERROR
 }
 
-async fn render_dashboard(State(base): State<String>) -> Result<Html<String>, StatusCode> {
+async fn render_explorer(State(base): State<String>) -> Result<Html<String>, StatusCode> {
     let home_url = std::env::var("HOME_URL").unwrap_or_else(|_| "/".to_string());
 
     let search_input = TextInput::new("query")
@@ -47,7 +47,7 @@ async fn render_dashboard(State(base): State<String>) -> Result<Html<String>, St
         .x_model("queryType")
         .groups_expr("queryTypeGroups");
 
-    let page = Dashboard {
+    let page = Explorer {
         search_input_html: search_input.render().map_err(render_error)?,
         query_type_select_html: query_type_select.render().map_err(render_error)?,
         progress_bar_html: ProgressBar.render().map_err(render_error)?,
@@ -91,7 +91,7 @@ pub fn router(base: &str) -> Router {
     let cors_headers = std::env::var("CORS_HEADERS").unwrap_or_else(|_| "*".to_string());
 
     let app = Router::new()
-        .route("/", get(render_dashboard))
+        .route("/", get(render_explorer))
         .route("/api/settings", post(save_settings))
         .route(
             "/base.css",

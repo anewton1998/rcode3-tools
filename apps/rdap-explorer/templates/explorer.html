@@ -1,10 +1,10 @@
 {% extends "layout.html" %}
 
-{% block title %}Dashboard · RDAP Explorer{% endblock %}
+{% block title %}RDAP Explorer{% endblock %}
 
 {% block content %}
 <script>
-    // Dashboard component for Alpine.js.
+    // Explorer component for Alpine.js.
     //
     // Design notes:
     // - Query history lives client-side (Alpine state + localStorage) because
@@ -17,7 +17,7 @@
     //   degrades to a session-only history instead of breaking the app.
     // - Multi-tab caveat: two open tabs each keep their own history and the
     //   last writer wins. Accepted for a single-user lookup tool.
-    window.rdapDashboard = function () {
+    window.rdapExplorer = function () {
         const HISTORY_KEY = 'rdap-history';
         const HISTORY_VERSION = 1;
         const HISTORY_MAX = 50;
@@ -174,7 +174,7 @@
         <rcode3-site-name>rdap explorer</rcode3-site-name>
     </header>
 
-    <div class="dashboard_body" x-data="rdapDashboard()">
+    <div class="explorer_body" x-data="rdapExplorer()">
         <div class="dash_row dash_row_top">
             <section class="panel panel_input">
                 <div class="query_input_row">

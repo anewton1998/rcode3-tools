@@ -9,8 +9,8 @@
 	pointer-events: none;
 }
 
-/* RDAP Explorer dashboard layout */
-.dashboard_body {
+/* RDAP Explorer layout */
+.explorer_body {
 	display: flex;
 	flex-direction: column;
 	gap: 1em;
