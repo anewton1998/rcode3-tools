@@ -6,7 +6,7 @@
 <main class="main_panel">
     <header class="site_banner">
         <img src="{{ base }}/static/images/logo-1024.png" alt="rcode3 logo" class="site_logo">
-        <rcode3-site-name>rcode3 tools</rcode3-site-name>
+        <rcode3-site-name>RCODE3 Tools</rcode3-site-name>
         {{ theme_app_html|safe }}
     </header>
 
@@ -18,24 +18,32 @@
     <section class="home_features">
         <div class="panel query_card">
             <form class="query_form" action="/rdap-explorer" method="get" role="search">
-                <label class="query_label panel_title" for="home-query">Enter a domain name, IP address, or ASN</label>
+                <label class="query_label panel_title" for="home-query">Query RDAP</label>
                 <div class="query_row">
                     <input type="text" id="home-query" name="query" class="rcode3_input_text query_input"
                            placeholder="example.com or 192.0.2.1" autocomplete="off" maxlength="253">
                     <button type="submit" class="rcode3_button explore_btn">explore</button>
                 </div>
+                <p>
+                Enter a domain name, IP address or CIDR, or autonomous system number.
+                Queries to authoritative servers run in your browser.
+                </p>
             </form>
         </div>
         <div class="panel">
-            <h3 class="panel_title">Runs in your browser</h3>
+            <h3 class="panel_title">Advanced RDAP Bootstrap</h3>
             <p>
-                Lookups happen client-side. What you type stays between you and the registry.
+                If you have custom RDAP clients, you can use them with out advanced RDAP bootstrap server.
+                Point your client at <code>https://bootstrap.rcode3.com/rdap</code> and your client will
+                receive HTTP redirects to the appropriate RDAP server.
             </p>
         </div>
         <div class="panel">
-            <h3 class="panel_title">Built for operators</h3>
+            <h3 class="panel_title">Bulk RDAP Operations</h3>
             <p>
-                Clean, scriptable data for registry, hosting, and abuse teams who need answers fast.
+                <a class="off_site_link" href="https://github.com/anewton1998/rdap-utils.git">RDAP Utils</a>
+                are a set of bulk RDAP utilities. They take input from text and CSV files and output in
+                CSV or JSON.
             </p>
         </div>
     </section>
