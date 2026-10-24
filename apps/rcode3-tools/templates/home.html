@@ -37,6 +37,9 @@
                 Point your client at <code>https://bootstrap.rcode3.com/rdap</code> and your client will
                 receive HTTP redirects to the appropriate RDAP server.
             </p>
+            <p>
+                Or <a class="off_site_link" href="https://github.com/anewton1998/rdap-bootstrap-docker">run your own</a>.
+            </p>
         </div>
         <div class="panel">
             <h3 class="panel_title">Bulk RDAP Operations</h3>
@@ -44,12 +47,18 @@
                 <a class="off_site_link" href="https://github.com/anewton1998/rdap-utils.git">RDAP Utils</a>
                 are a set of bulk RDAP utilities. They take input from text and CSV files and output in
                 CSV or JSON.
+
+                <ul>
+                    <li>Resolve IP addresses to their network.</li>
+                    <li>Verify domains are "protected".</li>
+                    <li>Find the network containing each domain's nameserver.</li>
+                </ul>
             </p>
         </div>
     </section>
 
     <footer>
-        <p>&copy; rcode3.com</p>
+        <p>&copy; Andrew Newton 2026 - Code is open sourced on <a class="off_site_link" href="https://github.com/anewton1998/rcode3-tools">GitHub</a></p>
     </footer>
 </main>
 {% endblock %}
