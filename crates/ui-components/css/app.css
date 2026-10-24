@@ -212,6 +212,40 @@
 	cursor: default;
 }
 
+/* Action links grouped at the right end of a history row, kept adjacent
+   to each other instead of being spread by the row's space-between. */
+.history_actions {
+	display: flex;
+	align-items: center;
+	gap: .6em;
+	flex: 0 0 auto;
+}
+
+/* Share link (paperclip) on each history entry: copies a shareable URL
+   to the clipboard, mirroring the results-panel copy buttons. The
+   U+FE0E variation selector renders U+1F517 as a monochrome glyph so
+   it picks up the action color like the SVG copy icons. */
+.share_link {
+	flex: 0 0 auto;
+	color: var(--theme-action-color);
+	cursor: pointer;
+	text-decoration: none;
+	line-height: 1;
+}
+
+.share_link:hover {
+	color: var(--theme-accent-color);
+}
+
+.share_copied {
+	color: var(--theme-accent-color);
+}
+
+/* The paperclip glyph in help text, tinted like the action links. */
+.share_icon {
+	color: var(--theme-action-color);
+}
+
 .history_meta {
 	display: flex;
 	gap: .75em;
