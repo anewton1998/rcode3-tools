@@ -520,7 +520,7 @@
 		display: block;
 	}
 
-	.hero_query_label {
+	.query_label {
 		display: none;
 	}
 }
@@ -531,6 +531,22 @@
    margin, so the grid gap provides the spacing. */
 .hero_panel {
 	margin-top: 1em;
+	text-align: center;
+}
+
+.hero_logo {
+	display: block;
+	margin: 0 auto;
+	max-height: 8rem;
+	width: auto;
+}
+
+.hero_tagline {
+	margin: .5rem 0 0;
+	font-family: var(--theme-site-name-font-family);
+	font-weight: var(--theme-site-name-font-weight);
+	font-size: var(--theme-site-name-font-size);
+	color: var(--theme-primary-color);
 }
 
 .home_features {
@@ -540,15 +556,19 @@
 	margin-top: 1em;
 }
 
-/* Home hero: query input + "explore" button that hands off to rdap-explorer. */
-.hero_query_form {
+/* Search card: query input + "explore" button that hands off to rdap-explorer. */
+.query_form {
 	display: flex;
-	flex-wrap: wrap;
+	flex-direction: column;
 	gap: .5em;
-	margin-top: 1em;
 }
 
-.hero_query_input {
-	flex: 1 1 14rem;
+.query_row {
+	display: flex;
+	gap: .5em;
+}
+
+.query_input {
+	flex: 1 1 auto;
 	min-width: 0;
 }

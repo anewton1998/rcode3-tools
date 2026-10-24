@@ -11,26 +11,20 @@
     </header>
 
     <section class="panel hero_panel">
-        <h2 class="panel_title">Authoritative domain registration data, decoded.</h2>
-        <p>
-            rcode3 looks up live RDAP records for domains and IP addresses straight from the
-            authoritative source — no stale whois, no guesswork.
-        </p>
-        <form class="hero_query_form" action="/rdap-explorer" method="get" role="search">
-            <label class="hero_query_label" for="hero-query">Enter a domain name, IP address, or ASN</label>
-            <input type="text" id="hero-query" name="query" class="rcode3_input_text hero_query_input"
-                   placeholder="example.com or 192.0.2.1" autocomplete="off" maxlength="253">
-            <button type="submit" class="rcode3_button hero_explore_btn">explore</button>
-        </form>
+        <img src="{{ base }}/static/images/logo-1024.png" alt="RCODE3 logo" class="hero_logo">
+        <p class="hero_tagline">RCODE3 Tools</p>
     </section>
 
     <section class="home_features">
-        <div class="panel">
-            <h3 class="panel_title">Live &amp; authoritative</h3>
-            <p>
-                Queries go through the official RDAP bootstrap, so you get registration data as it
-                stands today.
-            </p>
+        <div class="panel query_card">
+            <form class="query_form" action="/rdap-explorer" method="get" role="search">
+                <label class="query_label panel_title" for="home-query">Enter a domain name, IP address, or ASN</label>
+                <div class="query_row">
+                    <input type="text" id="home-query" name="query" class="rcode3_input_text query_input"
+                           placeholder="example.com or 192.0.2.1" autocomplete="off" maxlength="253">
+                    <button type="submit" class="rcode3_button explore_btn">explore</button>
+                </div>
+            </form>
         </div>
         <div class="panel">
             <h3 class="panel_title">Runs in your browser</h3>
