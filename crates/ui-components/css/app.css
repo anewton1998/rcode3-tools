@@ -519,6 +519,10 @@
 	.theme_app_menu:not([hidden]) {
 		display: block;
 	}
+
+	.hero_query_label {
+		display: none;
+	}
 }
 
 /* rcode3-tools home: content sections rendered as themed panels.
@@ -534,4 +538,17 @@
 	grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
 	gap: 1em;
 	margin-top: 1em;
+}
+
+/* Home hero: query input + "explore" button that hands off to rdap-explorer. */
+.hero_query_form {
+	display: flex;
+	flex-wrap: wrap;
+	gap: .5em;
+	margin-top: 1em;
+}
+
+.hero_query_input {
+	flex: 1 1 14rem;
+	min-width: 0;
 }

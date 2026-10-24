@@ -16,7 +16,12 @@
             rcode3 looks up live RDAP records for domains and IP addresses straight from the
             authoritative source — no stale whois, no guesswork.
         </p>
-        <a class="rcode3_button" href="/rdap-explorer">Try the RDAP Explorer</a>
+        <form class="hero_query_form" action="/rdap-explorer" method="get" role="search">
+            <label class="hero_query_label" for="hero-query">Enter a domain name, IP address, or ASN</label>
+            <input type="text" id="hero-query" name="query" class="rcode3_input_text hero_query_input"
+                   placeholder="example.com or 192.0.2.1" autocomplete="off" maxlength="253">
+            <button type="submit" class="rcode3_button hero_explore_btn">explore</button>
+        </form>
     </section>
 
     <section class="home_features">

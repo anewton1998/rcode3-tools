@@ -59,12 +59,29 @@
 
             async init() {
                 this.restore();
+
+                // Pick up a query handed off from the home page's Explore form
+                // (e.g. /rdap-explorer?query=example.com) and run it once the
+                // WASM client is ready.
+                const params = new URLSearchParams(window.location.search);
+                const incoming = (params.get('query') || '').trim();
+
                 const load = async () => {
                     try { this.queryTypeGroups = await window.RdapClient.queryTypeGroups(); }
                     catch (e) { console.error('failed to load query types', e); }
                 };
                 if (window.RdapClient) { await load(); }
                 else { window.addEventListener('rdap-ready', load); }
+
+                if (incoming) {
+                    this.query = incoming.slice(0, QUERY_MAX);
+                    this.queryType = params.get('type') || 'auto';
+                    if (!window.RdapClient) {
+                        await new Promise((resolve) =>
+                            window.addEventListener('rdap-ready', resolve, { once: true }));
+                    }
+                    await this.lookup();
+                }
             },
 
             async lookup() {
