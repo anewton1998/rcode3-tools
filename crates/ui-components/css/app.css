@@ -241,8 +241,10 @@
 	color: var(--theme-accent-color);
 }
 
-/* The paperclip glyph in help text, tinted like the action links. */
-.share_icon {
+/* Icon legend glyphs in help text, tinted like the action links. */
+.share_icon,
+.download_icon,
+.help_copy {
 	color: var(--theme-action-color);
 }
 
