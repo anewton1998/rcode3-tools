@@ -123,6 +123,17 @@
 	margin-bottom: .35em;
 }
 
+/* Clickable example queries in the How-to-use panel: run the query on click. */
+.example_link {
+	color: var(--theme-action-color);
+	cursor: pointer;
+	text-decoration: underline;
+}
+
+.example_link:hover {
+	color: var(--theme-accent-color);
+}
+
 .progress_wrap {
 	display: block;
 	margin-top: .75em;
