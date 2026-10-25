@@ -155,12 +155,12 @@ pub async fn rdap_explorer(query: &str, query_type: Option<String>) -> Result<Js
 async fn fetch_with_referrals(
     code: &str,
     value: &str,
-) -> Result<(ResponseData, Vec<custom::ReferralOutcome>), JsValue> {
+) -> Result<(ResponseData, Vec<custom::ReferralOutcome>), String> {
     let data = lookup_typed(code, value)
         .await
-        .map_err(|e| JsValue::from_str(&custom::describe_error(&e)))?;
+        .map_err(|e| custom::describe_error(&e))?;
     if data.http_data.status_code >= 400 {
-        return Err(JsValue::from_str(&custom::http_error_message(&data)));
+        return Err(custom::http_error_message(&data));
     }
     let mut referrals = Vec::new();
     for url in custom::referral_urls(&data) {
@@ -195,8 +195,9 @@ pub async fn rdap_explorer_html(
     query: &str,
     query_type: Option<String>,
 ) -> Result<String, JsValue> {
-    let (data, referrals) =
-        fetch_with_referrals(query_type.as_deref().unwrap_or("auto"), query).await?;
+    let (data, referrals) = fetch_with_referrals(query_type.as_deref().unwrap_or("auto"), query)
+        .await
+        .map_err(|e| JsValue::from_str(&e))?;
     Ok(render_result_html(&data, &referrals))
 }
 
@@ -217,8 +218,9 @@ pub async fn rdap_explorer_with_tree(
     query: &str,
     query_type: Option<String>,
 ) -> Result<JsValue, JsValue> {
-    let (data, referrals) =
-        fetch_with_referrals(query_type.as_deref().unwrap_or("auto"), query).await?;
+    let (data, referrals) = fetch_with_referrals(query_type.as_deref().unwrap_or("auto"), query)
+        .await
+        .map_err(|e| JsValue::from_str(&e))?;
     let tree_node = custom::build_tree(query, &data, &referrals);
     let tree = custom::render_tree(&tree_node);
     // Result-panel order: host/received banner → result tree → response body
@@ -322,9 +324,10 @@ mod tests {
 
     #[tokio::test]
     async fn native_domain_lookup_html_includes_referral_divider() {
-        let html = rdap_explorer_html("icann.org", None)
+        let (data, referrals) = fetch_with_referrals("auto", "icann.org")
             .await
             .expect("lookup html");
+        let html = render_result_html(&data, &referrals);
         assert!(
             html.contains("data_divider"),
             "expected a referral divider between results: {html}"
