@@ -6,6 +6,8 @@ mod error;
 mod html;
 mod nameserver;
 mod network;
+mod rpki;
+mod search;
 mod tree;
 
 use icann_rdap_client::RdapClientError;
@@ -48,6 +50,67 @@ pub(crate) fn render_response_body(data: &ResponseData) -> String {
         RdapResponse::Network(network) => parts.push(network::network_html(network, authority)),
         RdapResponse::Autnum(autnum) => parts.push(autnum::autnum_html(autnum, authority)),
         RdapResponse::Entity(entity) => parts.push(entity::entity_html(entity, authority)),
+        RdapResponse::Rpki1Roa(roa) => parts.push(rpki::roa_html(roa, authority)),
+        RdapResponse::Rpki1Aspa(aspa) => parts.push(rpki::aspa_html(aspa, authority)),
+        RdapResponse::Rpki1X509ResourceCert(cert) => parts.push(rpki::x509_html(cert, authority)),
+        RdapResponse::DomainSearchResults(s) => parts.push(search::search_results_html(
+            "Domain Search Results",
+            s.results(),
+            authority,
+            &s.common,
+            domain::domain_html,
+        )),
+        RdapResponse::EntitySearchResults(s) => parts.push(search::search_results_html(
+            "Entity Search Results",
+            s.results(),
+            authority,
+            &s.common,
+            entity::entity_html,
+        )),
+        RdapResponse::NameserverSearchResults(s) => parts.push(search::search_results_html(
+            "Nameserver Search Results",
+            s.results(),
+            authority,
+            &s.common,
+            nameserver::nameserver_html,
+        )),
+        RdapResponse::IpSearchResults(s) => parts.push(search::search_results_html(
+            "IP Network Search Results",
+            s.results(),
+            authority,
+            &s.common,
+            network::network_html,
+        )),
+        RdapResponse::AutnumSearchResults(s) => parts.push(search::search_results_html(
+            "Autnum Search Results",
+            s.results(),
+            authority,
+            &s.common,
+            autnum::autnum_html,
+        )),
+        RdapResponse::Rpki1RoaSearchResults(s) => parts.push(search::search_results_html(
+            "RPKI ROA Search Results",
+            s.results(),
+            authority,
+            &s.common,
+            rpki::roa_html,
+        )),
+        RdapResponse::Rpki1AspaSearchResults(s) => parts.push(search::search_results_html(
+            "RPKI ASPA Search Results",
+            s.results(),
+            authority,
+            &s.common,
+            rpki::aspa_html,
+        )),
+        RdapResponse::Rpki1X509ResourceCertSearchResults(s) => {
+            parts.push(search::search_results_html(
+                "X.509 Resource Certificate Search Results",
+                s.results(),
+                authority,
+                &s.common,
+                rpki::x509_html,
+            ))
+        }
         other => parts.push(format!(
             "<span class=\"info_text\">{}</span>",
             html::escape(&other.to_string())

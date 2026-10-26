@@ -13,10 +13,14 @@
 
 use icann_rdap_client::RdapClientError;
 use icann_rdap_client::rdap::ResponseData;
-use icann_rdap_common::prelude::{Entity, Nameserver, ObjectCommon, RdapResponse};
+use icann_rdap_common::prelude::{
+    Autnum, Domain, Entity, Nameserver, Network, ObjectCommon, RdapResponse, Rpk1Aspa, Rpk1Roa,
+    Rpk1X509ResourceCert,
+};
 
 use super::common::entity_label;
 use super::html::escape;
+use super::search::MAX_SEARCH_RESULTS;
 
 /// Depth cap for recursion into subordinate objects. The `depth` parameter
 /// counts from the response node (the query root is depth 0, its responses
@@ -87,59 +91,39 @@ pub(crate) fn build_tree(
 /// A response node: badge is the RDAP object class, meta the authority host.
 /// The main response and each followed referral use this identically — the
 /// first child of the root is the answer to the query, the rest are referrals.
+/// Search-result responses become a group node (plural class badge + count)
+/// whose children are the contained object nodes.
 fn response_node(data: &ResponseData, depth: usize) -> TreeNode {
     let mut n = match &data.rdap {
-        RdapResponse::Domain(domain) => {
-            let label = domain
-                .ldh_name
-                .clone()
-                .or_else(|| handle_of(&domain.object_common))
-                .unwrap_or_default();
-            let mut n = node("domain", label);
-            push_subordinates(
-                &mut n,
-                domain.object_common.entities.as_deref(),
-                domain.nameservers.as_deref(),
-                depth,
-            );
-            n
-        }
+        RdapResponse::Domain(domain) => domain_node(domain, depth),
         RdapResponse::Entity(entity) => entity_node(entity, depth),
-        RdapResponse::Nameserver(ns) => {
-            let label = ns
-                .ldh_name
-                .clone()
-                .or_else(|| handle_of(&ns.object_common))
-                .unwrap_or_default();
-            node("nameserver", label)
+        RdapResponse::Nameserver(ns) => nameserver_node(ns),
+        RdapResponse::Network(network) => network_node(network, depth),
+        RdapResponse::Autnum(autnum) => autnum_node(autnum),
+        RdapResponse::Rpki1Roa(roa) => roa_node(roa, depth),
+        RdapResponse::Rpki1Aspa(aspa) => aspa_node(aspa, depth),
+        RdapResponse::Rpki1X509ResourceCert(cert) => x509_node(cert, depth),
+        RdapResponse::DomainSearchResults(s) => {
+            search_group("domains", s.results(), |r| domain_node(r, depth))
         }
-        RdapResponse::Network(network) => {
-            let label = network
-                .name
-                .as_deref()
-                .map(|s| s.to_string())
-                .or_else(|| network.start_address.clone())
-                .or_else(|| handle_of(&network.object_common))
-                .unwrap_or_default();
-            let mut n = node("network", label);
-            if depth < MAX_TREE_DEPTH
-                && let Some(entities) = &network.object_common.entities
-            {
-                let group = entities_group(entities, depth);
-                if !group.children.is_empty() {
-                    n.children.push(group);
-                }
-            }
-            n
+        RdapResponse::EntitySearchResults(s) => {
+            search_group("entities", s.results(), |r| entity_node(r, depth))
         }
-        RdapResponse::Autnum(autnum) => {
-            let label = autnum
-                .start_autnum
-                .as_ref()
-                .map(|s| s.to_string())
-                .or_else(|| handle_of(&autnum.object_common))
-                .unwrap_or_default();
-            node("autnum", label)
+        RdapResponse::NameserverSearchResults(s) => {
+            search_group("nameservers", s.results(), nameserver_node)
+        }
+        RdapResponse::IpSearchResults(s) => {
+            search_group("networks", s.results(), |r| network_node(r, depth))
+        }
+        RdapResponse::AutnumSearchResults(s) => search_group("autnums", s.results(), autnum_node),
+        RdapResponse::Rpki1RoaSearchResults(s) => {
+            search_group("roas", s.results(), |r| roa_node(r, depth))
+        }
+        RdapResponse::Rpki1AspaSearchResults(s) => {
+            search_group("aspas", s.results(), |r| aspa_node(r, depth))
+        }
+        RdapResponse::Rpki1X509ResourceCertSearchResults(s) => {
+            search_group("certs", s.results(), |r| x509_node(r, depth))
         }
         other => node(&data.rdap_type, other.to_string()),
     };
@@ -153,6 +137,127 @@ fn response_node(data: &ResponseData, depth: usize) -> TreeNode {
     n
 }
 
+/// A domain node: label is the LDH name (else handle), with the domain's
+/// entity and nameserver groups as children.
+fn domain_node(domain: &Domain, depth: usize) -> TreeNode {
+    let label = domain
+        .ldh_name
+        .clone()
+        .or_else(|| handle_of(&domain.object_common))
+        .unwrap_or_default();
+    let mut n = node("domain", label);
+    push_subordinates(
+        &mut n,
+        domain.object_common.entities.as_deref(),
+        domain.nameservers.as_deref(),
+        depth,
+    );
+    n
+}
+
+/// A nameserver node: label is the LDH name (else handle).
+fn nameserver_node(ns: &Nameserver) -> TreeNode {
+    let label = ns
+        .ldh_name
+        .clone()
+        .or_else(|| handle_of(&ns.object_common))
+        .unwrap_or_default();
+    node("nameserver", label)
+}
+
+/// A network node: label is the name, else start address, else handle, with
+/// its entity group as a child.
+fn network_node(network: &Network, depth: usize) -> TreeNode {
+    let label = network
+        .name
+        .as_deref()
+        .map(|s| s.to_string())
+        .or_else(|| network.start_address.clone())
+        .or_else(|| handle_of(&network.object_common))
+        .unwrap_or_default();
+    let mut n = node("network", label);
+    push_entities(&mut n, network.object_common.entities.as_deref(), depth);
+    n
+}
+
+/// An autnum node: label is the start ASN (else handle).
+fn autnum_node(autnum: &Autnum) -> TreeNode {
+    let label = autnum
+        .start_autnum
+        .as_ref()
+        .map(|s| s.to_string())
+        .or_else(|| handle_of(&autnum.object_common))
+        .unwrap_or_default();
+    node("autnum", label)
+}
+
+/// A ROA node: label is the name (else handle), meta the handle when the
+/// label came from the name, with its entity group as a child.
+fn roa_node(roa: &Rpk1Roa, depth: usize) -> TreeNode {
+    let label = roa
+        .name
+        .clone()
+        .or_else(|| handle_of(&roa.object_common))
+        .unwrap_or_default();
+    let meta = handle_of(&roa.object_common).filter(|h| *h != label);
+    let mut n = node("roa", label);
+    n.meta = meta;
+    push_entities(&mut n, roa.object_common.entities.as_deref(), depth);
+    n
+}
+
+/// An ASPA node: label is the name (else handle), meta the handle when the
+/// label came from the name, with its entity group as a child.
+fn aspa_node(aspa: &Rpk1Aspa, depth: usize) -> TreeNode {
+    let label = aspa
+        .name
+        .clone()
+        .or_else(|| handle_of(&aspa.object_common))
+        .unwrap_or_default();
+    let meta = handle_of(&aspa.object_common).filter(|h| *h != label);
+    let mut n = node("aspa", label);
+    n.meta = meta;
+    push_entities(&mut n, aspa.object_common.entities.as_deref(), depth);
+    n
+}
+
+/// An X.509 resource certificate node: label is the subject (else handle),
+/// meta the handle when the label came from the subject.
+fn x509_node(cert: &Rpk1X509ResourceCert, depth: usize) -> TreeNode {
+    let label = cert
+        .subject
+        .clone()
+        .or_else(|| handle_of(&cert.object_common))
+        .unwrap_or_default();
+    let meta = handle_of(&cert.object_common).filter(|h| *h != label);
+    let mut n = node("x509", label);
+    n.meta = meta;
+    push_entities(&mut n, cert.object_common.entities.as_deref(), depth);
+    n
+}
+
+/// Builds the group node for a search response: the badge is the plural
+/// result class, the meta is the total count, and the children are the
+/// contained object nodes (capped at [`MAX_SEARCH_RESULTS`] with a trailing
+/// "…and N more" node).
+fn search_group<T, F>(kind: &str, results: &[T], build: F) -> TreeNode
+where
+    F: Fn(&T) -> TreeNode,
+{
+    let mut group = node(kind, String::new());
+    group.meta = Some(results.len().to_string());
+    for r in results.iter().take(MAX_SEARCH_RESULTS) {
+        group.children.push(build(r));
+    }
+    if results.len() > MAX_SEARCH_RESULTS {
+        let more = results.len() - MAX_SEARCH_RESULTS;
+        group
+            .children
+            .push(node("more", format!("…and {more} more")));
+    }
+    group
+}
+
 /// Adds the `entities` and `nameservers` group nodes under a response.
 fn push_subordinates(
     parent: &mut TreeNode,
@@ -163,12 +268,7 @@ fn push_subordinates(
     if depth >= MAX_TREE_DEPTH {
         return;
     }
-    if let Some(entities) = entities {
-        let group = entities_group(entities, depth);
-        if !group.children.is_empty() {
-            parent.children.push(group);
-        }
-    }
+    push_entities(parent, entities, depth);
     if let Some(nameservers) = nameservers
         && !nameservers.is_empty()
     {
@@ -183,6 +283,20 @@ fn push_subordinates(
             group.children.push(node("nameserver", label));
         }
         parent.children.push(group);
+    }
+}
+
+/// Adds an `entities` group node under `parent` when within the depth cap and
+/// the group has children. Shared by the network and RPKI object nodes.
+fn push_entities(parent: &mut TreeNode, entities: Option<&[Entity]>, depth: usize) {
+    if depth >= MAX_TREE_DEPTH {
+        return;
+    }
+    if let Some(entities) = entities {
+        let group = entities_group(entities, depth);
+        if !group.children.is_empty() {
+            parent.children.push(group);
+        }
     }
 }
 
@@ -447,5 +561,108 @@ mod tests {
         // THEN it still renders a node tagged with the rdap_type and host.
         assert!(html.contains(">error<"), "{html}");
         assert!(html.contains("rdap.example"), "{html}");
+    }
+
+    #[test]
+    fn domain_search_renders_group_with_children() {
+        // GIVEN a domain search response with two results
+        let json = r#"{
+            "rdapConformance": ["rdap_level_0"],
+            "domainSearchResults": [
+                {"objectClassName": "domain", "ldhName": "a.example.com"},
+                {"objectClassName": "domain", "ldhName": "b.example.com"}
+            ]
+        }"#;
+        let data = response(json, "DomainSearchResults", "rdap.example");
+        // WHEN the tree is built
+        let html = render_tree(&build_tree("*.example.com", &data, &[]));
+        // THEN a `domains` group node with the count and each result as a child
+        assert!(html.contains(">domains<"), "{html}");
+        assert!(html.contains("· 2 @ rdap.example"), "{html}");
+        assert!(html.contains("a.example.com"), "{html}");
+        assert!(html.contains("b.example.com"), "{html}");
+    }
+
+    #[test]
+    fn empty_search_renders_group_with_zero_count() {
+        // GIVEN a search response with no results
+        let json = r#"{ "entitySearchResults": [] }"#;
+        let data = response(json, "EntitySearchResults", "rdap.example");
+        // WHEN the tree is built
+        let html = render_tree(&build_tree("cn=foo", &data, &[]));
+        // THEN the group node still renders with a zero count
+        assert!(html.contains(">entities<"), "{html}");
+        assert!(html.contains("· 0 @ rdap.example"), "{html}");
+    }
+
+    #[test]
+    fn search_group_is_capped_with_a_more_node() {
+        // GIVEN more results than the cap
+        let items: Vec<String> = (0..(MAX_SEARCH_RESULTS + 2))
+            .map(|i| format!("{{\"objectClassName\": \"domain\", \"ldhName\": \"h{i}.test\"}}"))
+            .collect();
+        let json = format!("{{ \"domainSearchResults\": [{}] }}", items.join(","));
+        let data = response(&json, "DomainSearchResults", "rdap.example");
+        // WHEN the tree is built
+        let html = render_tree(&build_tree("*.test", &data, &[]));
+        // THEN only MAX_SEARCH_RESULTS object children render, plus a "more" node
+        let domain_children = html.matches(">domain<").count();
+        assert_eq!(domain_children, MAX_SEARCH_RESULTS, "{html}");
+        assert!(html.contains(">more<"), "{html}");
+        assert!(html.contains("…and 2 more"), "{html}");
+    }
+
+    #[test]
+    fn rpki_roa_object_renders_node() {
+        // GIVEN a single ROA object response
+        let json = r#"{
+            "objectClassName": "rpki1_roa",
+            "handle": "ROA-1",
+            "name": "My ROA"
+        }"#;
+        let data = response(json, "Rpki1Roa", "rdap.example");
+        // WHEN the tree is built
+        let html = render_tree(&build_tree("ROA-1", &data, &[]));
+        // THEN a `roa` node shows the name with the handle and host as meta
+        assert!(html.contains(">roa<"), "{html}");
+        assert!(html.contains("My ROA"), "{html}");
+        assert!(html.contains("ROA-1 @ rdap.example"), "{html}");
+    }
+
+    #[test]
+    fn rpki_roa_search_renders_group() {
+        // GIVEN a ROA search response with two results
+        let json = r#"{
+            "rpki1_roaSearchResults": [
+                {"objectClassName": "rpki1_roa", "handle": "ROA-1", "name": "One"},
+                {"objectClassName": "rpki1_roa", "handle": "ROA-2", "name": "Two"}
+            ]
+        }"#;
+        let data = response(json, "Rpki1RoaSearchResults", "rdap.example");
+        // WHEN the tree is built
+        let html = render_tree(&build_tree("rpki-roa-search", &data, &[]));
+        // THEN a `roas` group with the count and each ROA as a child
+        assert!(html.contains(">roas<"), "{html}");
+        assert!(html.contains("· 2 @ rdap.example"), "{html}");
+        assert!(html.contains(">roa<"), "{html}");
+        assert!(html.contains("One"), "{html}");
+        assert!(html.contains("Two"), "{html}");
+    }
+
+    #[test]
+    fn x509_cert_node_uses_subject_as_label() {
+        // GIVEN an X.509 resource certificate response
+        let json = r#"{
+            "objectClassName": "rpki1_x509ResourceCert",
+            "handle": "CERT-9",
+            "subject": "CN=End Entity"
+        }"#;
+        let data = response(json, "Rpki1X509ResourceCert", "rdap.example");
+        // WHEN the tree is built
+        let html = render_tree(&build_tree("cert-9", &data, &[]));
+        // THEN the node is badged `x509`, labelled by subject, meta carries handle
+        assert!(html.contains(">x509<"), "{html}");
+        assert!(html.contains("CN=End Entity"), "{html}");
+        assert!(html.contains("CERT-9 @ rdap.example"), "{html}");
     }
 }

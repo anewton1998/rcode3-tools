@@ -91,6 +91,14 @@ pub(crate) fn append_common(
         }
         parts.push(section("Entities", blocks.join("")));
     }
+    append_level0_common(parts, authority, common);
+}
+
+/// Appends only the level-0 common sections (service notices and conformance
+/// claims) to `parts`. Search-result wrappers carry a level-0 `Common` but no
+/// `ObjectCommon`, so they reuse just this tail rather than the full
+/// [`append_common`].
+pub(crate) fn append_level0_common(parts: &mut Vec<String>, authority: &str, common: &Common) {
     if let Some(notices) = common.notices.as_ref() {
         parts.push(section("Service Notices", notices_list(notices)));
     }
