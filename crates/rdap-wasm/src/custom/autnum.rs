@@ -33,7 +33,7 @@ pub(crate) fn autnum_html(a: &Autnum, authority: &str, anchor: &str) -> String {
         ));
     }
     if let Some(n) = a.name.as_deref() {
-        summary.push(row("Name", &escape(n)));
+        summary.push(row("Name", &with_copy(escape(n), n)));
     }
     if let Some(t) = a.autnum_type.as_deref() {
         summary.push(row("Type", &escape(t)));
@@ -42,7 +42,7 @@ pub(crate) fn autnum_html(a: &Autnum, authority: &str, anchor: &str) -> String {
         summary.push(row("Country", &escape(c)));
     }
     if let Some(h) = oc.handle.as_deref() {
-        summary.push(row("Handle", &mono(h)));
+        summary.push(row("Handle", &with_copy(mono(h), h)));
     }
 
     let mut parts = vec![title("Autnum", label.as_deref()), kv_table(&summary)];
@@ -130,8 +130,26 @@ mod tests {
     }
 
     #[test]
+    fn autnum_handle_and_name_have_copy_buttons() {
+        // GIVEN an autnum with a handle and a name
+        let json = r#"{
+            "objectClassName": "autnum",
+            "handle": "AS15169",
+            "startAutnum": 15169,
+            "name": "GOOGLE"
+        }"#;
+        let a: Autnum = serde_json::from_str(json).unwrap();
+
+        // WHEN rendered
+        let html = autnum_html(&a, "rdap.example", "");
+
+        // THEN the handle and the name each carry a copy button
+        assert!(html.contains("copyToClipboard('AS15169')"), "{html}");
+        assert!(html.contains("copyToClipboard('GOOGLE')"), "{html}");
+    }
+
+    #[test]
     fn as_numbers_have_copy_button_with_bare_number() {
-        // GIVEN an autnum with distinct start and end ASNs
         let json = r#"{
             "objectClassName": "autnum",
             "handle": "AS15169-15170",
@@ -148,8 +166,12 @@ mod tests {
         assert!(html.contains("copyToClipboard('15169')"), "{html}");
         assert!(html.contains("copyToClipboard('15170')"), "{html}");
         assert!(
-            !html.contains("copyToClipboard('AS"),
-            "copy value should not carry the AS prefix: {html}"
+            !html.contains("copyToClipboard('AS15169')"),
+            "start AS copy value should not carry the AS prefix: {html}"
+        );
+        assert!(
+            !html.contains("copyToClipboard('AS15170')"),
+            "end AS copy value should not carry the AS prefix: {html}"
         );
     }
 }

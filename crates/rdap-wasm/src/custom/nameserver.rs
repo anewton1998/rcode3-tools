@@ -40,7 +40,7 @@ pub(crate) fn nameserver_html(ns: &Nameserver, authority: &str, anchor: &str) ->
         }
     }
     if let Some(handle) = oc.handle.as_deref() {
-        summary.push(row("Handle", &mono(handle)));
+        summary.push(row("Handle", &with_copy(mono(handle), handle)));
     }
 
     let mut parts = vec![
@@ -181,8 +181,24 @@ mod tests {
     }
 
     #[test]
+    fn nameserver_handle_has_copy_button() {
+        // GIVEN a nameserver with a handle
+        let json = r#"{
+            "objectClassName": "nameserver",
+            "handle": "NS1-X",
+            "ldhName": "ns1.example.com"
+        }"#;
+        let ns: Nameserver = serde_json::from_str(json).unwrap();
+
+        // WHEN rendered
+        let html = nameserver_html(&ns, "rdap.example", "");
+
+        // THEN the Handle row carries a copy button for the handle
+        assert!(html.contains("copyToClipboard('NS1-X')"), "{html}");
+    }
+
+    #[test]
     fn nameserver_trailing_dot_name_copies_clean() {
-        // GIVEN a nameserver whose name has a trailing root dot
         let json = r#"{
             "objectClassName": "nameserver",
             "handle": "NS1-X",

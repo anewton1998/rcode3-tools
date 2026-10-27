@@ -105,14 +105,15 @@ fn push_validity(rows: &mut Vec<String>, before: Option<&str>, after: Option<&st
     }
 }
 
-/// Pushes a URI row as an off-site link when it is http(s), else as mono text.
+/// Pushes a URI row as an off-site link when it is http(s), else as mono
+/// text. Either way the row carries a copy button for the raw URI.
 fn push_uri(rows: &mut Vec<String>, label: &str, uri: Option<&str>) {
     let Some(u) = uri else { return };
     let link = off_site_link(u);
     if link.is_empty() {
-        rows.push(row(label, &mono(u)));
+        rows.push(row(label, &with_copy(mono(u), u)));
     } else {
-        rows.push(row(label, &link));
+        rows.push(row(label, &with_copy(link, u)));
     }
 }
 
@@ -123,7 +124,7 @@ pub(crate) fn roa_html(roa: &Rpk1Roa, authority: &str, anchor: &str) -> String {
 
     let mut summary = Vec::new();
     if let Some(n) = roa.name.as_deref() {
-        summary.push(row("Name", &escape(n)));
+        summary.push(row("Name", &with_copy(escape(n), n)));
     }
     if let Some(h) = oc.handle.as_deref() {
         summary.push(row(
@@ -171,7 +172,7 @@ pub(crate) fn aspa_html(aspa: &Rpk1Aspa, authority: &str, anchor: &str) -> Strin
 
     let mut summary = Vec::new();
     if let Some(n) = aspa.name.as_deref() {
-        summary.push(row("Name", &escape(n)));
+        summary.push(row("Name", &with_copy(escape(n), n)));
     }
     if let Some(h) = oc.handle.as_deref() {
         summary.push(row(
@@ -408,6 +409,20 @@ mod tests {
             html.contains(
                 "<a class=\"off_site_link\" href=\"https://rpki.example/roa.mft\" target=\"_blank\""
             ),
+            "{html}"
+        );
+    }
+
+    #[test]
+    fn roa_name_and_publication_uri_have_copy_buttons() {
+        // GIVEN a ROA with a name and an https publication URI
+        let roa = roa_fixture();
+        // WHEN rendered
+        let html = roa_html(&roa, "rpki.example", "");
+        // THEN the name copies the name and the URI copies the raw URI
+        assert!(html.contains("copyToClipboard('Example ROA')"), "{html}");
+        assert!(
+            html.contains("copyToClipboard('https://rpki.example/roa.mft')"),
             "{html}"
         );
     }

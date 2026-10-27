@@ -51,6 +51,9 @@ pub(crate) fn network_html(net: &Network, authority: &str, anchor: &str) -> Stri
             }
         }
     }
+    if let Some(name) = net.name.as_deref() {
+        summary.push(row("Name", &with_copy(escape(name), name)));
+    }
     if let Some(v) = net.ip_version.as_deref() {
         summary.push(row("IP Version", &escape(v)));
     }
@@ -58,10 +61,10 @@ pub(crate) fn network_html(net: &Network, authority: &str, anchor: &str) -> Stri
         summary.push(row("Type", &escape(t)));
     }
     if let Some(p) = net.parent_handle.as_deref() {
-        summary.push(row("Parent Handle", &mono(p)));
+        summary.push(row("Parent Handle", &with_copy(mono(p), p)));
     }
     if let Some(h) = oc.handle.as_deref() {
-        summary.push(row("Handle", &mono(h)));
+        summary.push(row("Handle", &with_copy(mono(h), h)));
     }
 
     let mut parts = vec![title("Network", label), kv_table(&summary)];
@@ -230,8 +233,57 @@ mod tests {
     }
 
     #[test]
+    fn network_handles_have_copy_buttons() {
+        // GIVEN a network with a handle and a parent handle
+        let json = r#"{
+            "objectClassName": "network",
+            "handle": "NET-1",
+            "parentHandle": "NET-PARENT",
+            "startAddress": "192.0.2.0"
+        }"#;
+        let net: Network = serde_json::from_str(json).unwrap();
+
+        // WHEN rendered
+        let html = network_html(&net, "rdap.example", "");
+
+        // THEN both handle rows carry copy buttons
+        assert!(html.contains("copyToClipboard('NET-1')"), "{html}");
+        assert!(html.contains("copyToClipboard('NET-PARENT')"), "{html}");
+    }
+
+    #[test]
+    fn network_name_has_copy_button_after_address_rows() {
+        // GIVEN a network with a name and address rows
+        let json = r#"{
+            "objectClassName": "network",
+            "handle": "NET-1",
+            "name": "TEST-NET-1",
+            "startAddress": "192.0.2.0",
+            "endAddress": "192.0.2.255",
+            "cidr0_cidrs": [{"v4prefix": "192.0.2.0", "length": 24}]
+        }"#;
+        let net: Network = serde_json::from_str(json).unwrap();
+
+        // WHEN rendered
+        let html = network_html(&net, "rdap.example", "");
+
+        // THEN the name has a copy button
+        assert!(html.contains("copyToClipboard('TEST-NET-1')"), "{html}");
+        // and the Name row comes after the CIDR/address rows
+        let cidr_at = html
+            .find("query = '192.0.2.0/24'")
+            .expect("cidr row: {html}");
+        let name_at = html
+            .find("<td class=\"data_key\">Name</td>")
+            .expect("name row: {html}");
+        assert!(
+            cidr_at < name_at,
+            "Name should follow the address rows: {html}"
+        );
+    }
+
+    #[test]
     fn network_addresses_and_cidrs_have_copy_buttons() {
-        // GIVEN a network with start/end addresses and a CIDR
         let json = r#"{
             "objectClassName": "network",
             "handle": "NET-1",

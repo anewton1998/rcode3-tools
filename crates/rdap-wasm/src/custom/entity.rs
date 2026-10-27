@@ -1,7 +1,7 @@
 use icann_rdap_common::prelude::Entity;
 
 use super::common::{append_common, contact_rows, entity_label};
-use super::html::{escape, kv_table, mono, render, row, section, str_opt, title};
+use super::html::{escape, kv_table, mono, render, row, section, title, with_copy};
 
 pub(crate) fn entity_html(entity: &Entity, authority: &str, anchor: &str) -> String {
     let label = entity_label(entity);
@@ -28,20 +28,23 @@ pub(crate) fn append_entity_body(
     let public_ids: Vec<String> = entity
         .public_ids()
         .iter()
-        .map(|p| {
-            format!(
-                "{}={}",
-                str_opt(p.id_type.as_ref()),
-                str_opt(p.identifier.as_ref())
-            )
+        .filter_map(|p| {
+            let identifier = p.identifier.as_deref().unwrap_or_default();
+            if identifier.is_empty() {
+                return None;
+            }
+            let type_str = p.id_type.as_deref().unwrap_or("");
+            let display = if type_str.is_empty() {
+                mono(identifier)
+            } else {
+                mono(&format!("{type_str}={identifier}"))
+            };
+            Some(row("Public ID", &with_copy(display, identifier)))
         })
-        .filter(|s| s != "=")
         .collect();
-    if !public_ids.is_empty() {
-        summary.push(row("Public IDs", &escape(&public_ids.join(", "))));
-    }
+    summary.extend(public_ids);
     if let Some(handle) = oc.handle.as_deref() {
-        summary.push(row("Handle", &mono(handle)));
+        summary.push(row("Handle", &with_copy(mono(handle), handle)));
     }
     parts.push(kv_table(&summary));
 
@@ -70,6 +73,72 @@ mod tests {
         assert!(html.contains("299"), "{html}");
         // the top-level entity body carries the response anchor
         assert!(html.contains("id=\"rdap-r0\""), "{html}");
+    }
+
+    #[test]
+    fn entity_handle_has_copy_button() {
+        // GIVEN an entity with a handle
+        let json = r#"{
+            "objectClassName": "entity",
+            "handle": "299",
+            "roles": ["registrar"]
+        }"#;
+        let entity: Entity = serde_json::from_str(json).unwrap();
+
+        // WHEN rendered
+        let html = entity_html(&entity, "rdap.example", "");
+
+        // THEN the Handle row carries a copy button for the handle
+        assert!(html.contains("copyToClipboard('299')"), "{html}");
+    }
+
+    #[test]
+    fn entity_public_ids_get_one_row_each_copying_identifier() {
+        // GIVEN an entity with two public ids
+        let json = r#"{
+            "objectClassName": "entity",
+            "handle": "299",
+            "roles": ["registrar"],
+            "publicIds": [
+                {"type": "IANA ID", "identifier": "299"},
+                {"type": "DUNS", "identifier": "123456789"}
+            ]
+        }"#;
+        let entity: Entity = serde_json::from_str(json).unwrap();
+
+        // WHEN rendered
+        let html = entity_html(&entity, "rdap.example", "");
+
+        // THEN each public id is its own row copying the bare identifier
+        assert_eq!(
+            html.matches("<td class=\"data_key\">Public ID</td>")
+                .count(),
+            2,
+            "{html}"
+        );
+        assert!(html.contains("copyToClipboard('299')"), "{html}");
+        assert!(html.contains("copyToClipboard('123456789')"), "{html}");
+        // the display keeps the type=identifier form
+        assert!(html.contains("IANA ID=299"), "{html}");
+        // the type prefix must not be part of the copied value
+        assert!(!html.contains("copyToClipboard('IANA ID=299')"), "{html}");
+    }
+
+    #[test]
+    fn entity_public_id_without_type_copies_identifier() {
+        // GIVEN a public id with no type
+        let json = r#"{
+            "objectClassName": "entity",
+            "handle": "299",
+            "publicIds": [{"identifier": "abc"}]
+        }"#;
+        let entity: Entity = serde_json::from_str(json).unwrap();
+
+        // WHEN rendered
+        let html = entity_html(&entity, "rdap.example", "");
+
+        // THEN it still renders a row copying the identifier
+        assert!(html.contains("copyToClipboard('abc')"), "{html}");
     }
 
     #[test]

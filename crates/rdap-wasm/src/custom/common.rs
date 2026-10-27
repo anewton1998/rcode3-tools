@@ -129,10 +129,10 @@ pub(crate) fn entity_label(entity: &Entity) -> Option<String> {
 pub(crate) fn contact_rows(contact: &Contact) -> String {
     let mut rows = Vec::new();
     if let Some(name) = contact.full_name() {
-        rows.push(row("Name", &escape(name)));
+        rows.push(row("Name", &with_copy(escape(name), name)));
     }
     if let Some(org) = contact.organization_name() {
-        rows.push(row("Organization", &escape(org)));
+        rows.push(row("Organization", &with_copy(escape(org), org)));
     }
     let emails: Vec<String> = contact.emails().iter().map(|e| e.email.clone()).collect();
     if !emails.is_empty() {
@@ -301,10 +301,12 @@ fn links_table(links: &Links) -> String {
         let mt = l.media_type.as_deref();
         let media = str_opt(l.media_type.as_ref());
         let url = match l.href.as_deref().or(l.value.as_deref()) {
-            Some(u) if is_rdap_json(mt) => lookup_action(u, "url", &mono(u)),
-            Some(u) if is_html_media(mt) => off_site_link(u),
-            Some(u) if is_geofeed(mt) => format!("{}{}", mono(u), geofeed_download_link(u)),
-            Some(u) => mono(u),
+            Some(u) if is_rdap_json(mt) => with_copy(lookup_action(u, "url", &mono(u)), u),
+            Some(u) if is_html_media(mt) => with_copy(off_site_link(u), u),
+            Some(u) if is_geofeed(mt) => {
+                with_copy(format!("{}{}", mono(u), geofeed_download_link(u)), u)
+            }
+            Some(u) => with_copy(mono(u), u),
             None => String::new(),
         };
         if rel.is_empty() && media.is_empty() && url.is_empty() {
@@ -831,7 +833,8 @@ mod tests {
             html.contains("copyToClipboard('+1.555.1234')"),
             "tel: scheme should be stripped from the copied value: {html}"
         );
-        assert_eq!(html.matches("copy_btn").count(), 2, "{html}");
+        // name, email, and phone each get a copy button
+        assert_eq!(html.matches("copy_btn").count(), 3, "{html}");
         // the display keeps the original tel: URI
         assert!(html.contains("tel:+1.555.1234"), "{html}");
     }
@@ -1008,6 +1011,62 @@ mod tests {
             Some(&"registration".to_string()),
             Some(&future_date.to_string())
         ));
+    }
+
+    #[test]
+    fn contact_name_and_organization_have_copy_buttons() {
+        // GIVEN a contact with a full name and organization
+        let json = r#"["vcard", [
+            ["version", {}, "text", "4.0"],
+            ["fn", {}, "text", "John Doe"],
+            ["org", {}, "text", "Example Org"]
+        ]]"#;
+        let data: Vec<serde_json::Value> = serde_json::from_str(json).unwrap();
+        let contact = Contact::from_vcard(&data).expect("vCard should parse");
+
+        // WHEN rendered
+        let html = super::contact_rows(&contact);
+
+        // THEN the name and organization each carry a copy button
+        assert!(html.contains("copyToClipboard('John Doe')"), "{html}");
+        assert!(html.contains("copyToClipboard('Example Org')"), "{html}");
+    }
+
+    #[test]
+    fn links_table_url_has_copy_button() {
+        // GIVEN links of each render variant
+        let json = r#"{
+            "objectClassName": "domain",
+            "ldhName": "example.com",
+            "links": [
+                {"rel": "self", "type": "application/rdap+json", "href": "https://rdap.example/domain/example.com"},
+                {"rel": "related", "type": "text/html", "href": "https://example.com/whois"},
+                {"rel": "related", "type": "application/geofeed+csv", "href": "https://example.com/feed.csv"},
+                {"rel": "related", "href": "https://example.com/plain"}
+            ]
+        }"#;
+        let domain: Domain = serde_json::from_str(json).unwrap();
+
+        // WHEN rendered
+        let html = domain_html(&domain, "rdap.example", "");
+
+        // THEN every URL variant carries a copy button for the raw URL
+        assert!(
+            html.contains("copyToClipboard('https://rdap.example/domain/example.com')"),
+            "{html}"
+        );
+        assert!(
+            html.contains("copyToClipboard('https://example.com/whois')"),
+            "{html}"
+        );
+        assert!(
+            html.contains("copyToClipboard('https://example.com/feed.csv')"),
+            "{html}"
+        );
+        assert!(
+            html.contains("copyToClipboard('https://example.com/plain')"),
+            "{html}"
+        );
     }
 
     #[test]

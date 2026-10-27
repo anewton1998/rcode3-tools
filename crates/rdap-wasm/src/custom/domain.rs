@@ -46,7 +46,7 @@ pub(crate) fn domain_html(domain: &Domain, authority: &str, anchor: &str) -> Str
         domain.ldh_name.as_deref(),
     );
     if let Some(handle) = oc.handle.as_deref() {
-        summary.push(row("Handle", &mono(handle)));
+        summary.push(row("Handle", &with_copy(mono(handle), handle)));
     }
 
     let mut parts = vec![
@@ -311,6 +311,23 @@ mod tests {
             !html.contains("copyToClipboard('example.com.'"),
             "trailing dot leaked into copy value: {html}"
         );
+    }
+
+    #[test]
+    fn domain_handle_has_copy_button() {
+        // GIVEN a domain with a handle
+        let json = r#"{
+            "objectClassName": "domain",
+            "handle": "EXAMPLE-COM",
+            "ldhName": "example.com"
+        }"#;
+        let domain: Domain = serde_json::from_str(json).unwrap();
+
+        // WHEN rendered
+        let html = domain_html(&domain, "rdap.example", "");
+
+        // THEN the Handle row carries a copy button for the handle
+        assert!(html.contains("copyToClipboard('EXAMPLE-COM')"), "{html}");
     }
 
     #[test]
