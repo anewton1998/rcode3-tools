@@ -188,12 +188,13 @@ async fn fetch_with_referrals(
 }
 
 /// Renders the concatenated result HTML (main response + referrals).
+/// This path has no result tree, so it renders without in-page anchor ids.
 fn render_result_html(data: &ResponseData, referrals: &[custom::ReferralOutcome]) -> String {
-    let mut html = custom::render_response_html(data);
+    let mut html = custom::render_response_html(data, "");
     for outcome in referrals {
         html.push_str(&custom::referral_divider());
         match &outcome.result {
-            Ok(referral) => html.push_str(&custom::render_response_html(referral)),
+            Ok(referral) => html.push_str(&custom::render_response_html(referral, "")),
             Err(e) => html.push_str(&custom::referral_error_note(&outcome.url, e)),
         }
     }
@@ -258,13 +259,21 @@ pub async fn rdap_explorer_with_tree(
             let tree = custom::render_tree(&tree_node);
             // Result-panel order: host/received banner → result tree →
             // response body → followed referrals (each with its own banner).
+            // The body anchors match the tree's response anchors so the
+            // tree's in-page links resolve to the rendered data.
             let mut html = custom::render_response_banner(&data);
             html.push_str(&custom::tree_block(&tree));
-            html.push_str(&custom::render_response_body(&data));
-            for outcome in &referrals {
+            html.push_str(&custom::render_response_body(
+                &data,
+                &custom::response_anchor(0),
+            ));
+            for (i, outcome) in referrals.iter().enumerate() {
                 html.push_str(&custom::referral_divider());
                 match &outcome.result {
-                    Ok(referral) => html.push_str(&custom::render_response_html(referral)),
+                    Ok(referral) => html.push_str(&custom::render_response_html(
+                        referral,
+                        &custom::response_anchor(i + 1),
+                    )),
                     Err(e) => html.push_str(&custom::referral_error_note(&outcome.url, e)),
                 }
             }
@@ -359,7 +368,7 @@ mod tests {
     async fn native_lookup_domain() {
         let data = lookup("example.com").await.expect("domain lookup");
         println!("native domain ok: {}", data.rdap_type);
-        println!("{}", custom::render_response_html(&data));
+        println!("{}", custom::render_response_html(&data, ""));
     }
 
     #[tokio::test]
@@ -393,7 +402,7 @@ mod tests {
     #[tokio::test]
     async fn domain_summary_renders_table() {
         let data = lookup("example.com").await.expect("domain lookup");
-        let html = custom::render_response_html(&data);
+        let html = custom::render_response_html(&data, "");
         assert!(
             html.contains("<table class=\"data_table\">"),
             "expected an rdap table, got: {html}"
@@ -411,7 +420,7 @@ mod tests {
         let tree = custom::render_tree(&custom::build_tree("example.com", &data, &[]));
         let banner = custom::render_response_banner(&data);
         let block = custom::tree_block(&tree);
-        let body = custom::render_response_body(&data);
+        let body = custom::render_response_body(&data, "");
         // WHEN assembled in the export's order
         let html = format!("{banner}{block}{body}");
         // THEN the tree sits after the host/received banner and before the body.

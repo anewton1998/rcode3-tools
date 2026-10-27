@@ -1,3 +1,4 @@
+mod anchor;
 mod autnum;
 mod common;
 mod domain;
@@ -15,6 +16,7 @@ use icann_rdap_client::rdap::ResponseData;
 use icann_rdap_common::httpdata::HttpData;
 use icann_rdap_common::prelude::RdapResponse;
 
+pub(crate) use anchor::response_anchor;
 pub(crate) use error::no_information_html;
 pub use error::{describe_error, http_error_message};
 pub(crate) use tree::{ReferralOutcome, build_tree, render_tree, tree_block};
@@ -40,35 +42,46 @@ pub fn render_response_banner(data: &ResponseData) -> String {
 }
 
 /// Renders the results-panel HTML for any supported RDAP response.
-pub fn render_response_html(data: &ResponseData) -> String {
+///
+/// `anchor` is the in-page anchor id for this response's body (see
+/// [`anchor`]); pass `""` to render without anchor ids (the non-tree path).
+pub fn render_response_html(data: &ResponseData, anchor: &str) -> String {
     let mut parts = vec![render_response_banner(data)];
-    parts.push(render_response_body(data));
+    parts.push(render_response_body(data, anchor));
     parts.join("")
 }
 
 /// Renders the object-class body *without* the leading host/received banner,
 /// so callers can slot other content (e.g. the result tree) between the
-/// banner and the body.
-pub(crate) fn render_response_body(data: &ResponseData) -> String {
+/// banner and the body. `anchor` threads the in-page anchor id through the
+/// object renderers so the result tree's links resolve.
+pub(crate) fn render_response_body(data: &ResponseData, anchor: &str) -> String {
     let authority = data.http_data.host();
     let mut parts = Vec::new();
     match &data.rdap {
-        RdapResponse::Domain(domain) => parts.push(domain::domain_html(domain, authority)),
+        RdapResponse::Domain(domain) => parts.push(domain::domain_html(domain, authority, anchor)),
         RdapResponse::Nameserver(nameserver) => {
-            parts.push(nameserver::nameserver_html(nameserver, authority))
+            parts.push(nameserver::nameserver_html(nameserver, authority, anchor))
         }
-        RdapResponse::Network(network) => parts.push(network::network_html(network, authority)),
-        RdapResponse::Autnum(autnum) => parts.push(autnum::autnum_html(autnum, authority)),
-        RdapResponse::Entity(entity) => parts.push(entity::entity_html(entity, authority)),
-        RdapResponse::Rpki1Roa(roa) => parts.push(rpki::roa_html(roa, authority)),
-        RdapResponse::Rpki1Aspa(aspa) => parts.push(rpki::aspa_html(aspa, authority)),
-        RdapResponse::Rpki1X509ResourceCert(cert) => parts.push(rpki::x509_html(cert, authority)),
-        RdapResponse::ErrorResponse(err) => parts.push(error::error_response_html(err, authority)),
+        RdapResponse::Network(network) => {
+            parts.push(network::network_html(network, authority, anchor))
+        }
+        RdapResponse::Autnum(autnum) => parts.push(autnum::autnum_html(autnum, authority, anchor)),
+        RdapResponse::Entity(entity) => parts.push(entity::entity_html(entity, authority, anchor)),
+        RdapResponse::Rpki1Roa(roa) => parts.push(rpki::roa_html(roa, authority, anchor)),
+        RdapResponse::Rpki1Aspa(aspa) => parts.push(rpki::aspa_html(aspa, authority, anchor)),
+        RdapResponse::Rpki1X509ResourceCert(cert) => {
+            parts.push(rpki::x509_html(cert, authority, anchor))
+        }
+        RdapResponse::ErrorResponse(err) => {
+            parts.push(error::error_response_html(err, authority, anchor))
+        }
         RdapResponse::DomainSearchResults(s) => parts.push(search::search_results_html(
             "Domain Search Results",
             s.results(),
             authority,
             &s.common,
+            anchor,
             domain::domain_html,
         )),
         RdapResponse::EntitySearchResults(s) => parts.push(search::search_results_html(
@@ -76,6 +89,7 @@ pub(crate) fn render_response_body(data: &ResponseData) -> String {
             s.results(),
             authority,
             &s.common,
+            anchor,
             entity::entity_html,
         )),
         RdapResponse::NameserverSearchResults(s) => parts.push(search::search_results_html(
@@ -83,6 +97,7 @@ pub(crate) fn render_response_body(data: &ResponseData) -> String {
             s.results(),
             authority,
             &s.common,
+            anchor,
             nameserver::nameserver_html,
         )),
         RdapResponse::IpSearchResults(s) => parts.push(search::search_results_html(
@@ -90,6 +105,7 @@ pub(crate) fn render_response_body(data: &ResponseData) -> String {
             s.results(),
             authority,
             &s.common,
+            anchor,
             network::network_html,
         )),
         RdapResponse::AutnumSearchResults(s) => parts.push(search::search_results_html(
@@ -97,6 +113,7 @@ pub(crate) fn render_response_body(data: &ResponseData) -> String {
             s.results(),
             authority,
             &s.common,
+            anchor,
             autnum::autnum_html,
         )),
         RdapResponse::Rpki1RoaSearchResults(s) => parts.push(search::search_results_html(
@@ -104,6 +121,7 @@ pub(crate) fn render_response_body(data: &ResponseData) -> String {
             s.results(),
             authority,
             &s.common,
+            anchor,
             rpki::roa_html,
         )),
         RdapResponse::Rpki1AspaSearchResults(s) => parts.push(search::search_results_html(
@@ -111,6 +129,7 @@ pub(crate) fn render_response_body(data: &ResponseData) -> String {
             s.results(),
             authority,
             &s.common,
+            anchor,
             rpki::aspa_html,
         )),
         RdapResponse::Rpki1X509ResourceCertSearchResults(s) => {
@@ -119,12 +138,16 @@ pub(crate) fn render_response_body(data: &ResponseData) -> String {
                 s.results(),
                 authority,
                 &s.common,
+                anchor,
                 rpki::x509_html,
             ))
         }
-        other => parts.push(format!(
-            "<span class=\"info_text\">{}</span>",
-            html::escape(&other.to_string())
+        other => parts.push(html::render(
+            vec![format!(
+                "<span class=\"info_text\">{}</span>",
+                html::escape(&other.to_string())
+            )],
+            anchor,
         )),
     }
     parts.join("")
@@ -180,7 +203,7 @@ mod tests {
         // GIVEN an RFC 9083 error response
         let data = error_response_data();
         // WHEN the object-class body is rendered
-        let body = render_response_body(&data);
+        let body = render_response_body(&data, "");
         // THEN it uses the dedicated error renderer, not the generic
         // `info_text` fallback that prints the rdap_type.
         assert!(body.contains("RDAP Error"), "{body}");

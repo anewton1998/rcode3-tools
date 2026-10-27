@@ -117,7 +117,7 @@ fn push_uri(rows: &mut Vec<String>, label: &str, uri: Option<&str>) {
 }
 
 /// Renders a Route Origin Authorization (ROA) object.
-pub(crate) fn roa_html(roa: &Rpk1Roa, authority: &str) -> String {
+pub(crate) fn roa_html(roa: &Rpk1Roa, authority: &str, anchor: &str) -> String {
     let oc = &roa.object_common;
     let label = roa.name.as_deref().or(oc.handle.as_deref());
 
@@ -160,12 +160,12 @@ pub(crate) fn roa_html(roa: &Rpk1Roa, authority: &str) -> String {
     if let Some(digests) = roa.digests.as_ref() {
         parts.push(section("Digests", digests_table(digests)));
     }
-    append_common(&mut parts, authority, oc, &roa.common);
-    render(parts)
+    append_common(&mut parts, authority, oc, &roa.common, anchor);
+    render(parts, anchor)
 }
 
 /// Renders an Autonomous System Provider Authorization (ASPA) object.
-pub(crate) fn aspa_html(aspa: &Rpk1Aspa, authority: &str) -> String {
+pub(crate) fn aspa_html(aspa: &Rpk1Aspa, authority: &str, anchor: &str) -> String {
     let oc = &aspa.object_common;
     let label = aspa.name.as_deref().or(oc.handle.as_deref());
 
@@ -212,12 +212,12 @@ pub(crate) fn aspa_html(aspa: &Rpk1Aspa, authority: &str) -> String {
     if let Some(digests) = aspa.digests.as_ref() {
         parts.push(section("Digests", digests_table(digests)));
     }
-    append_common(&mut parts, authority, oc, &aspa.common);
-    render(parts)
+    append_common(&mut parts, authority, oc, &aspa.common, anchor);
+    render(parts, anchor)
 }
 
 /// Renders an X.509 Resource Certificate object.
-pub(crate) fn x509_html(cert: &Rpk1X509ResourceCert, authority: &str) -> String {
+pub(crate) fn x509_html(cert: &Rpk1X509ResourceCert, authority: &str, anchor: &str) -> String {
     let oc = &cert.object_common;
     let label = cert.subject.as_deref().or(oc.handle.as_deref());
 
@@ -291,8 +291,8 @@ pub(crate) fn x509_html(cert: &Rpk1X509ResourceCert, authority: &str) -> String 
     if let Some(digests) = cert.digests.as_ref() {
         parts.push(section("Digests", digests_table(digests)));
     }
-    append_common(&mut parts, authority, oc, &cert.common);
-    render(parts)
+    append_common(&mut parts, authority, oc, &cert.common, anchor);
+    render(parts, anchor)
 }
 
 /// A `data_title` heading with an optional mono name suffix.
@@ -336,7 +336,7 @@ mod tests {
         // GIVEN a ROA object
         let roa = roa_fixture();
         // WHEN rendered
-        let html = roa_html(&roa, "rpki.example");
+        let html = roa_html(&roa, "rpki.example", "");
         // THEN the heading, scalar fields, and repeated sections all appear
         assert!(html.contains("RPKI ROA"), "{html}");
         assert!(html.contains("Example ROA"), "{html}");
@@ -354,7 +354,7 @@ mod tests {
         // GIVEN a ROA with an origin ASN
         let roa = roa_fixture();
         // WHEN rendered
-        let html = roa_html(&roa, "rpki.example");
+        let html = roa_html(&roa, "rpki.example", "");
         // THEN the origin AS links as an as_number query with a bare-number copy
         assert!(
             html.contains("query = '64496'; queryType = 'as_number'; lookup()"),
@@ -372,7 +372,7 @@ mod tests {
         // GIVEN a ROA with a v4 and a v6 prefix
         let roa = roa_fixture();
         // WHEN rendered
-        let html = roa_html(&roa, "rpki.example");
+        let html = roa_html(&roa, "rpki.example", "");
         // THEN each prefix uses the matching cidr query type
         assert!(
             html.contains("query = '192.0.2.0/24'; queryType = 'ip_v4_cidr'; lookup()"),
@@ -389,7 +389,7 @@ mod tests {
         // GIVEN a ROA with a handle
         let roa = roa_fixture();
         // WHEN rendered
-        let html = roa_html(&roa, "rpki.example");
+        let html = roa_html(&roa, "rpki.example", "");
         // THEN the handle links as a rpki1_roa_handle query
         assert!(
             html.contains("query = 'ROA-EXAMPLE-1'; queryType = 'rpki1_roa_handle'; lookup()"),
@@ -402,7 +402,7 @@ mod tests {
         // GIVEN a ROA with an https publication URI
         let roa = roa_fixture();
         // WHEN rendered
-        let html = roa_html(&roa, "rpki.example");
+        let html = roa_html(&roa, "rpki.example", "");
         // THEN it renders as a new-tab off-site anchor
         assert!(
             html.contains(
@@ -422,7 +422,7 @@ mod tests {
         }"#;
         let roa: Rpk1Roa = serde_json::from_str(json).unwrap();
         // WHEN rendered
-        let html = roa_html(&roa, "rpki.example");
+        let html = roa_html(&roa, "rpki.example", "");
         // THEN the markup is escaped
         assert!(!html.contains("<script>"), "{html}");
         assert!(html.contains("&lt;script&gt;"), "{html}");
@@ -441,7 +441,7 @@ mod tests {
         }"#;
         let aspa: Rpk1Aspa = serde_json::from_str(json).unwrap();
         // WHEN rendered
-        let html = aspa_html(&aspa, "rpki.example");
+        let html = aspa_html(&aspa, "rpki.example", "");
         // THEN customer and each provider render as AS lookup links
         assert!(html.contains("RPKI ASPA"), "{html}");
         assert!(html.contains("Customer AS"), "{html}");
@@ -482,7 +482,7 @@ mod tests {
         }"#;
         let cert: Rpk1X509ResourceCert = serde_json::from_str(json).unwrap();
         // WHEN rendered
-        let html = x509_html(&cert, "rpki.example");
+        let html = x509_html(&cert, "rpki.example", "");
         // THEN the certificate fields and resource sections appear
         assert!(html.contains("X.509 Resource Certificate"), "{html}");
         assert!(html.contains("CN=EE"), "{html}");
@@ -508,7 +508,7 @@ mod tests {
         }"#;
         let cert: Rpk1X509ResourceCert = serde_json::from_str(json).unwrap();
         // WHEN rendered
-        let html = x509_html(&cert, "rpki.example");
+        let html = x509_html(&cert, "rpki.example", "");
         // THEN the address uses the addr (not cidr) query base
         assert!(
             html.contains("query = '192.0.2.1'; queryType = 'ip_v4_addr'; lookup()"),

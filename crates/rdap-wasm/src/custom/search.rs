@@ -19,6 +19,7 @@
 
 use icann_rdap_common::prelude::Common;
 
+use super::anchor::search_item_anchor;
 use super::common::append_level0_common;
 use super::html::{render, title};
 
@@ -30,13 +31,16 @@ pub(crate) const MAX_SEARCH_RESULTS: usize = 50;
 ///
 /// `label` is the human search type (e.g. `Domain Search Results`); the
 /// result count is appended to the heading. `render_one` renders a single
-/// contained object to its full result HTML.
+/// contained object to its full result HTML, receiving the item's in-page
+/// anchor so the contained object's body carries it (the result tree links
+/// to it). `anchor` is the search response's own anchor.
 pub(crate) fn search_results_html<T>(
     label: &str,
     results: &[T],
     authority: &str,
     common: &Common,
-    render_one: impl Fn(&T, &str) -> String,
+    anchor: &str,
+    render_one: impl Fn(&T, &str, &str) -> String,
 ) -> String {
     let heading = format!("{label} ({})", results.len());
     let mut parts = vec![title(&heading, None)];
@@ -47,7 +51,8 @@ pub(crate) fn search_results_html<T>(
         let rendered: Vec<String> = results
             .iter()
             .take(MAX_SEARCH_RESULTS)
-            .map(|r| render_one(r, authority))
+            .enumerate()
+            .map(|(i, r)| render_one(r, authority, &search_item_anchor(anchor, i)))
             .collect();
         parts.push(rendered.join(&super::referral_divider()));
         if results.len() > MAX_SEARCH_RESULTS {
@@ -60,7 +65,7 @@ pub(crate) fn search_results_html<T>(
     }
 
     append_level0_common(&mut parts, authority, common);
-    render(parts)
+    render(parts, anchor)
 }
 
 #[cfg(test)]
@@ -75,8 +80,14 @@ mod tests {
     }
 
     /// A trivial renderer so the wrapper can be tested without a real object.
-    fn render_marker(item: &String, _authority: &str) -> String {
-        format!("<div class=\"data_result\">item-{item}</div>")
+    /// Echoes the item anchor as the `data_result` id so anchor threading is
+    /// observable.
+    fn render_marker(item: &String, _authority: &str, anchor: &str) -> String {
+        if anchor.is_empty() {
+            format!("<div class=\"data_result\">item-{item}</div>")
+        } else {
+            format!("<div class=\"data_result\" id=\"{anchor}\">item-{item}</div>")
+        }
     }
 
     #[test]
@@ -89,6 +100,7 @@ mod tests {
             &results,
             "rdap.example",
             &empty_common(),
+            "rdap-r0",
             render_marker,
         );
         // THEN the heading carries the label and the count
@@ -105,6 +117,7 @@ mod tests {
             &results,
             "rdap.example",
             &empty_common(),
+            "rdap-r0",
             render_marker,
         );
         // THEN a "No results found." note is shown and no divider appears
@@ -122,6 +135,7 @@ mod tests {
             &results,
             "rdap.example",
             &empty_common(),
+            "rdap-r0",
             render_marker,
         );
         // THEN exactly one divider sits between the two full results
@@ -142,6 +156,7 @@ mod tests {
             &results,
             "rdap.example",
             &empty_common(),
+            "rdap-r0",
             render_marker,
         );
         // THEN only MAX_SEARCH_RESULTS objects render, with a trailing note
@@ -165,6 +180,7 @@ mod tests {
             &results,
             "rdap.example",
             &empty_common(),
+            "rdap-r0",
             render_marker,
         );
         // THEN the note reads "1 more result" (singular)
@@ -187,6 +203,7 @@ mod tests {
             &results,
             "rdap.example",
             &common,
+            "rdap-r0",
             render_marker,
         );
         // THEN the level-0 notices and conformance appear once

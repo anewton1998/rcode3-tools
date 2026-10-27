@@ -13,7 +13,7 @@ fn addr_query_type(s: &str) -> &'static str {
     }
 }
 
-pub(crate) fn network_html(net: &Network, authority: &str) -> String {
+pub(crate) fn network_html(net: &Network, authority: &str, anchor: &str) -> String {
     let oc = &net.object_common;
     let label = net.name.as_deref().or(net.start_address.as_deref());
     let mut summary = Vec::new();
@@ -65,8 +65,8 @@ pub(crate) fn network_html(net: &Network, authority: &str) -> String {
     }
 
     let mut parts = vec![title("Network", label), kv_table(&summary)];
-    append_common(&mut parts, authority, oc, &net.common);
-    render(parts)
+    append_common(&mut parts, authority, oc, &net.common, anchor);
+    render(parts, anchor)
 }
 
 #[cfg(test)]
@@ -85,7 +85,7 @@ mod tests {
             "type": "allocation"
         }"#;
         let net: Network = serde_json::from_str(json).unwrap();
-        let html = network_html(&net, "rdap.example");
+        let html = network_html(&net, "rdap.example", "");
         assert!(html.contains("Start Address"), "{html}");
         assert!(html.contains("192.0.2.0"), "{html}");
         assert!(html.contains("TEST-NET-1"), "{html}");
@@ -105,7 +105,7 @@ mod tests {
             ]
         }"#;
         let net: Network = serde_json::from_str(json).unwrap();
-        let html = network_html(&net, "rdap.example");
+        let html = network_html(&net, "rdap.example", "");
         assert!(
             html.contains("query = '192.0.2.0'; queryType = 'ip_v4_addr'; lookup()"),
             "{html}"
@@ -136,7 +136,7 @@ mod tests {
         let net: Network = serde_json::from_str(json).unwrap();
 
         // WHEN rendered
-        let html = network_html(&net, "rdap.example");
+        let html = network_html(&net, "rdap.example", "");
 
         // THEN each address is followed by "(⌕ …)" with the four scope icon links
         for scope in ["top", "up", "down", "bottom"] {
@@ -178,7 +178,7 @@ mod tests {
         let net: Network = serde_json::from_str(json).unwrap();
 
         // WHEN rendered
-        let html = network_html(&net, "rdap.example");
+        let html = network_html(&net, "rdap.example", "");
 
         // THEN the bare prefix gets the lookup link and cidr-scoped icons
         assert!(
@@ -209,7 +209,7 @@ mod tests {
         let net: Network = serde_json::from_str(json).unwrap();
 
         // WHEN rendered
-        let html = network_html(&net, "rdap.example");
+        let html = network_html(&net, "rdap.example", "");
 
         // THEN each CIDR is followed by "(⌕ …)" with cidr-scoped icon links
         for scope in ["top", "up", "down", "bottom"] {
@@ -242,7 +242,7 @@ mod tests {
         let net: Network = serde_json::from_str(json).unwrap();
 
         // WHEN rendered
-        let html = network_html(&net, "rdap.example");
+        let html = network_html(&net, "rdap.example", "");
 
         // THEN each address and the CIDR have a copy button
         assert!(html.contains("copyToClipboard('192.0.2.0')"), "{html}");

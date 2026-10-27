@@ -21,7 +21,7 @@ fn rdns_base(name: &str) -> Option<&'static str> {
     }
 }
 
-pub(crate) fn domain_html(domain: &Domain, authority: &str) -> String {
+pub(crate) fn domain_html(domain: &Domain, authority: &str, anchor: &str) -> String {
     let oc = &domain.object_common;
     let mut summary = Vec::new();
     if let Some(name) = domain.ldh_name.as_deref() {
@@ -54,10 +54,10 @@ pub(crate) fn domain_html(domain: &Domain, authority: &str) -> String {
         kv_table(&summary),
     ];
     if let Some(nameservers) = &domain.nameservers {
-        parts.push(section("Nameservers", nameserver_list(nameservers)));
+        parts.push(section("Nameservers", nameserver_list(nameservers, anchor)));
     }
-    append_common(&mut parts, authority, oc, &domain.common);
-    render(parts)
+    append_common(&mut parts, authority, oc, &domain.common, anchor);
+    render(parts, anchor)
 }
 
 /// Extracts de-duplicated "related" referral URLs from a domain's links,
@@ -97,7 +97,7 @@ mod tests {
             "nameservers": [{"objectClassName": "nameserver", "ldhName": "ns1.example.com"}]
         }"#;
         let domain: Domain = serde_json::from_str(json).unwrap();
-        let html = domain_html(&domain, "rdap.example");
+        let html = domain_html(&domain, "rdap.example", "");
         assert!(html.contains("data_title"), "{html}");
         assert!(html.contains("<td class=\"data_key\">Name</td>"), "{html}");
         assert!(html.contains("example.com"), "{html}");
@@ -124,7 +124,7 @@ mod tests {
         let domain: Domain = serde_json::from_str(json).unwrap();
 
         // WHEN rendered
-        let html = domain_html(&domain, "rdap.example");
+        let html = domain_html(&domain, "rdap.example", "");
 
         // THEN the name carries the ⌕ group with rdns_ipv4 scope links
         assert!(html.contains("(\u{2315}"), "missing search glyph: {html}");
@@ -149,7 +149,7 @@ mod tests {
         let domain: Domain = serde_json::from_str(json).unwrap();
 
         // WHEN rendered
-        let html = domain_html(&domain, "rdap.example");
+        let html = domain_html(&domain, "rdap.example", "");
 
         // THEN the name carries rdns_ipv6 scope links
         for scope in ["top", "up", "down", "bottom"] {
@@ -173,7 +173,7 @@ mod tests {
         let domain: Domain = serde_json::from_str(json).unwrap();
 
         // WHEN rendered
-        let html = domain_html(&domain, "rdap.example");
+        let html = domain_html(&domain, "rdap.example", "");
 
         // THEN the scope links still use the rdns_ipv4 base
         assert!(html.contains("queryType = 'rdns_ipv4_top'"), "{html}");
@@ -190,7 +190,7 @@ mod tests {
         let domain: Domain = serde_json::from_str(json).unwrap();
 
         // WHEN rendered
-        let html = domain_html(&domain, "rdap.example");
+        let html = domain_html(&domain, "rdap.example", "");
 
         // THEN scope links use the trimmed canonical query value
         for scope in ["top", "up", "down", "bottom"] {
@@ -221,7 +221,7 @@ mod tests {
         let domain: Domain = serde_json::from_str(json).unwrap();
 
         // WHEN rendered
-        let html = domain_html(&domain, "rdap.example");
+        let html = domain_html(&domain, "rdap.example", "");
 
         // THEN rdns_ipv6 scope links are present with the trimmed value
         assert!(
@@ -244,7 +244,7 @@ mod tests {
         let domain: Domain = serde_json::from_str(json).unwrap();
 
         // WHEN rendered
-        let html = domain_html(&domain, "rdap.example");
+        let html = domain_html(&domain, "rdap.example", "");
 
         // THEN no reverse-DNS scope links are added
         assert!(!html.contains("rdns_"), "{html}");
@@ -262,7 +262,7 @@ mod tests {
         let domain: Domain = serde_json::from_str(json).unwrap();
 
         // WHEN rendered
-        let html = domain_html(&domain, "rdap.example");
+        let html = domain_html(&domain, "rdap.example", "");
 
         // THEN the Name row carries a copy button with the domain name
         assert!(html.contains("copyToClipboard('example.com')"), "{html}");
@@ -279,7 +279,7 @@ mod tests {
         let domain: Domain = serde_json::from_str(json).unwrap();
 
         // WHEN rendered
-        let html = domain_html(&domain, "rdap.example");
+        let html = domain_html(&domain, "rdap.example", "");
 
         // THEN the copy value is the canonical (dot-stripped) name
         assert!(
@@ -303,7 +303,7 @@ mod tests {
         let domain: Domain = serde_json::from_str(json).unwrap();
 
         // WHEN rendered
-        let html = domain_html(&domain, "rdap.example");
+        let html = domain_html(&domain, "rdap.example", "");
 
         // THEN the copy value is the dot-stripped name
         assert!(html.contains("copyToClipboard('example.com')"), "{html}");

@@ -1,6 +1,12 @@
-/// Wraps the rendered parts in a top-level results container.
-pub(crate) fn render(parts: Vec<String>) -> String {
-    div("data_result", parts)
+/// Wraps the rendered parts in a top-level results container, tagged with
+/// the in-page anchor `id` when `anchor` is non-empty so the result tree
+/// can link to this response body.
+pub(crate) fn render(parts: Vec<String>, anchor: &str) -> String {
+    if anchor.is_empty() {
+        div("data_result", parts)
+    } else {
+        div_id("data_result", parts, anchor)
+    }
 }
 
 /// Joins non-empty parts into a classed `<div>`; empty when nothing to show.
@@ -14,6 +20,25 @@ pub(crate) fn div(cls: &str, parts: Vec<String>) -> String {
         return String::new();
     }
     format!("<div class=\"{cls}\">{inner}</div>")
+}
+
+/// Like [`div`], but tags the element with an in-page anchor `id` (from
+/// [`super::anchor`]). Anchors are index-built and need no escaping. An
+/// empty `id` (the "no anchors" path) falls back to a plain [`div`] so no
+/// stray `id=""` is ever emitted.
+pub(crate) fn div_id(cls: &str, parts: Vec<String>, id: &str) -> String {
+    if id.is_empty() {
+        return div(cls, parts);
+    }
+    let inner = parts
+        .into_iter()
+        .filter(|p| !p.is_empty())
+        .collect::<Vec<_>>()
+        .join("");
+    if inner.is_empty() {
+        return String::new();
+    }
+    format!("<div class=\"{cls}\" id=\"{id}\">{inner}</div>")
 }
 
 /// Renders the object-class heading, optionally followed by a mono name.

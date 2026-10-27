@@ -21,7 +21,7 @@ pub fn http_error_message(data: &ResponseData) -> String {
 /// notices, and conformance claims the server provided are rendered below it.
 /// The error code is always present (it is required by RFC 9083), so the
 /// panel always has something to show.
-pub(crate) fn error_response_html(err: &Rfc9083Error, authority: &str) -> String {
+pub(crate) fn error_response_html(err: &Rfc9083Error, authority: &str, anchor: &str) -> String {
     let code = err.error_code();
     let mut summary = Vec::new();
     if let Some(t) = err.title() {
@@ -50,7 +50,7 @@ pub(crate) fn error_response_html(err: &Rfc9083Error, authority: &str) -> String
     }
 
     append_level0_common(&mut parts, authority, &err.common);
-    render(parts)
+    render(parts, anchor)
 }
 
 /// Renders the results-panel message shown when a non-200 response carried no
@@ -101,7 +101,7 @@ mod tests {
         }"#;
         let err: Rfc9083Error = serde_json::from_str(json).unwrap();
         // WHEN rendered
-        let html = error_response_html(&err, "rdap.example");
+        let html = error_response_html(&err, "rdap.example", "");
         // THEN the heading carries the code, and the title/description render
         assert!(html.contains("RDAP Error"), "{html}");
         assert!(html.contains("404"), "{html}");
@@ -130,7 +130,7 @@ mod tests {
         }"#;
         let err: Rfc9083Error = serde_json::from_str(json).unwrap();
         // WHEN rendered
-        let html = error_response_html(&err, "rdap.example");
+        let html = error_response_html(&err, "rdap.example", "");
         // THEN the notices and conformance sections appear
         assert!(html.contains("Service Notices"), "{html}");
         assert!(html.contains("Rate Limited"), "{html}");
@@ -147,7 +147,7 @@ mod tests {
         }"#;
         let err: Rfc9083Error = serde_json::from_str(json).unwrap();
         // WHEN rendered
-        let html = error_response_html(&err, "rdap.example");
+        let html = error_response_html(&err, "rdap.example", "");
         // THEN the markup is escaped
         assert!(!html.contains("<script>"), "{html}");
         assert!(!html.contains("<img"), "{html}");
@@ -160,7 +160,7 @@ mod tests {
         let json = r#"{ "errorCode": 500 }"#;
         let err: Rfc9083Error = serde_json::from_str(json).unwrap();
         // WHEN rendered
-        let html = error_response_html(&err, "rdap.example");
+        let html = error_response_html(&err, "rdap.example", "");
         // THEN the heading still shows the code and no empty sections appear
         assert!(html.contains("RDAP Error"), "{html}");
         assert!(html.contains("500"), "{html}");

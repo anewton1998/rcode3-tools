@@ -329,6 +329,19 @@
 	opacity: .7;
 }
 
+/* In-page link on a tree node's value: action color, no underline. Clicking
+   scrolls the result pane to the element the node's data is rendered into
+   (the matching `id` emitted by the body renderers). */
+.tree_link {
+	color: var(--theme-action-color);
+	text-decoration: none;
+	cursor: pointer;
+}
+
+.tree_link:hover {
+	color: var(--theme-accent-color);
+}
+
 .tree_error .tree_kind,
 .tree_error .tree_label,
 .tree_error .tree_meta {

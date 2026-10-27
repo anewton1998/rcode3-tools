@@ -4,19 +4,23 @@ use icann_rdap_common::prelude::{
     Common, Contact, Entity, Events, Links, Nameserver, Notice, ObjectCommon, Remarks,
 };
 
+use super::anchor::{entity_anchor, id_attr, nameserver_anchor};
 use super::entity::append_entity_body;
 use super::html::{
-    div, escape, geofeed_download_link, kv_table, lookup_action, mono, off_site_link, row, section,
-    str_opt, title, with_copy,
+    div_id, escape, geofeed_download_link, kv_table, lookup_action, mono, off_site_link, row,
+    section, str_opt, title, with_copy,
 };
 
 /// Appends the shared object-common sections (status, events, links, redacted,
-/// nested entities, notices, conformance) to `parts`. Reused by every object-class renderer.
+/// nested entities, notices, conformance) to `parts`. Reused by every object-class
+/// renderer. `anchor` is the containing object's in-page anchor; each entity
+/// block is tagged with a child anchor so the result tree can link to it.
 pub(crate) fn append_common(
     parts: &mut Vec<String>,
     authority: &str,
     oc: &ObjectCommon,
     common: &Common,
+    anchor: &str,
 ) {
     if let Some(status) = oc.status.as_ref() {
         let mut items: Vec<String> = status
@@ -80,11 +84,12 @@ pub(crate) fn append_common(
     }
     if let Some(entities) = oc.entities.as_ref() {
         let mut blocks = Vec::new();
-        for ent in entities.iter() {
+        for (i, ent) in entities.iter().enumerate() {
+            let child_anchor = entity_anchor(anchor, i);
             let label = entity_label(ent);
             let mut body = vec![title("Entity", label.as_deref())];
-            append_entity_body(&mut body, ent, authority);
-            let block = div("indented_section", body);
+            append_entity_body(&mut body, ent, authority, &child_anchor);
+            let block = div_id("indented_section", body, &child_anchor);
             if !block.is_empty() {
                 blocks.push(block);
             }
@@ -154,14 +159,19 @@ pub(crate) fn contact_rows(contact: &Contact) -> String {
     kv_table(&rows)
 }
 
-/// Renders a domain's nameservers as a simple list.
-pub(crate) fn nameserver_list(nameservers: &[Nameserver]) -> String {
+/// Renders a domain's nameservers as a simple list. Each entry's `<li>` is
+/// tagged with the anchor for its index in the *full* `nameservers` slice
+/// (only ldh-named entries render an item), matching how the result tree
+/// computes the link target for the same entry.
+pub(crate) fn nameserver_list(nameservers: &[Nameserver], anchor: &str) -> String {
     let items = nameservers
         .iter()
-        .filter_map(|ns| ns.ldh_name.as_deref())
-        .map(|n| {
+        .enumerate()
+        .filter_map(|(i, ns)| ns.ldh_name.as_deref().map(|n| (i, n)))
+        .map(|(i, n)| {
             format!(
-                "<li>{}</li>",
+                "<li{}>{}</li>",
+                id_attr(&nameserver_anchor(anchor, i)),
                 with_copy(
                     lookup_action(n, "nameserver", &mono(n)),
                     n.trim_end_matches('.')
@@ -470,7 +480,7 @@ mod tests {
             "remarks": [{"title": "Note", "description": ["Hello world"]}]
         }"#;
         let domain: Domain = serde_json::from_str(json).unwrap();
-        let html = domain_html(&domain, "rdap.example");
+        let html = domain_html(&domain, "rdap.example", "");
         assert!(html.contains("Remarks"), "{html}");
         assert!(html.contains("Note"), "{html}");
         assert!(html.contains("Hello world"), "{html}");
@@ -486,7 +496,7 @@ mod tests {
             "nameservers": [{"objectClassName": "nameserver", "ldhName": "ns1.example.com"}]
         }"#;
         let domain: Domain = serde_json::from_str(json).unwrap();
-        let html = domain_html(&domain, "rdap.example");
+        let html = domain_html(&domain, "rdap.example", "");
         assert!(
             html.contains("query = 'ns1.example.com'; queryType = 'nameserver'; lookup()"),
             "{html}"
@@ -512,7 +522,7 @@ mod tests {
         let domain: Domain = serde_json::from_str(json).unwrap();
 
         // WHEN rendered
-        let html = domain_html(&domain, "rdap.example");
+        let html = domain_html(&domain, "rdap.example", "");
 
         // THEN each nameserver name gets its own copy button
         assert!(
@@ -536,7 +546,7 @@ mod tests {
             ]
         }"#;
         let domain: Domain = serde_json::from_str(json).unwrap();
-        let html = domain_html(&domain, "rdap.example");
+        let html = domain_html(&domain, "rdap.example", "");
         assert!(
             html.contains(
                 "query = 'https://rdap.example/domain/example.com'; queryType = 'url'; lookup()"
@@ -564,7 +574,7 @@ mod tests {
         let domain: Domain = serde_json::from_str(json).unwrap();
 
         // WHEN rendered
-        let html = domain_html(&domain, "rdap.example");
+        let html = domain_html(&domain, "rdap.example", "");
 
         // THEN it is an anchor opening a new tab, not an in-page lookup
         assert!(
@@ -592,7 +602,7 @@ mod tests {
         let domain: Domain = serde_json::from_str(json).unwrap();
 
         // WHEN rendered
-        let html = domain_html(&domain, "rdap.example");
+        let html = domain_html(&domain, "rdap.example", "");
 
         // THEN it still renders as an off-site anchor
         assert!(html.contains("class=\"off_site_link\""), "{html}");
@@ -637,7 +647,7 @@ mod tests {
         let domain: Domain = serde_json::from_str(json).unwrap();
 
         // WHEN rendered
-        let html = domain_html(&domain, "rdap.example");
+        let html = domain_html(&domain, "rdap.example", "");
 
         // THEN the href stays as plain mono text and a ⤓ download anchor
         // follows it (not wrapping it)
@@ -677,7 +687,7 @@ mod tests {
         let domain: Domain = serde_json::from_str(json).unwrap();
 
         // WHEN rendered
-        let html = domain_html(&domain, "rdap.example");
+        let html = domain_html(&domain, "rdap.example", "");
 
         // THEN the download symbol is still added
         assert!(html.contains("class=\"geofeed_download\""), "{html}");
@@ -696,7 +706,7 @@ mod tests {
         let domain: Domain = serde_json::from_str(json).unwrap();
 
         // WHEN rendered
-        let html = domain_html(&domain, "rdap.example");
+        let html = domain_html(&domain, "rdap.example", "");
 
         // THEN the value is used and gets the download symbol
         assert!(
@@ -718,7 +728,7 @@ mod tests {
         let domain: Domain = serde_json::from_str(json).unwrap();
 
         // WHEN rendered
-        let html = domain_html(&domain, "rdap.example");
+        let html = domain_html(&domain, "rdap.example", "");
 
         // THEN no download anchor is produced (the value stays as text only)
         assert!(!html.contains("geofeed_download"), "{html}");
@@ -738,7 +748,7 @@ mod tests {
         let domain: Domain = serde_json::from_str(json).unwrap();
 
         // WHEN rendered
-        let html = domain_html(&domain, "rdap.example");
+        let html = domain_html(&domain, "rdap.example", "");
 
         // THEN it still renders the download symbol
         assert!(html.contains("class=\"geofeed_download\""), "{html}");
@@ -758,7 +768,7 @@ mod tests {
         let domain: Domain = serde_json::from_str(json).unwrap();
 
         // WHEN rendered
-        let html = domain_html(&domain, "rdap.example");
+        let html = domain_html(&domain, "rdap.example", "");
 
         // THEN no download symbol is added
         assert!(!html.contains("geofeed_download"), "{html}");
@@ -789,7 +799,7 @@ mod tests {
             "remarks": [{"type": "glossary", "description": ["See docs"]}]
         }"#;
         let domain: Domain = serde_json::from_str(json).unwrap();
-        let html = domain_html(&domain, "rdap.example");
+        let html = domain_html(&domain, "rdap.example", "");
         assert!(html.contains("Remarks"), "{html}");
         assert!(html.contains("glossary"), "{html}");
         assert!(html.contains("See docs"), "{html}");
@@ -834,7 +844,7 @@ mod tests {
             "status": ["active"]
         }"#;
         let domain: Domain = serde_json::from_str(json).unwrap();
-        let html = domain_html(&domain, "rdap.example");
+        let html = domain_html(&domain, "rdap.example", "");
         assert!(!html.contains("Remarks"), "{html}");
     }
 
@@ -847,7 +857,7 @@ mod tests {
             "notices": [{"title": "Terms", "description": ["Accept terms to use"]}]
         }"#;
         let domain: Domain = serde_json::from_str(json).unwrap();
-        let html = domain_html(&domain, "rdap.example");
+        let html = domain_html(&domain, "rdap.example", "");
         assert!(html.contains("Service Notices"), "{html}");
         assert!(html.contains("Terms"), "{html}");
         assert!(html.contains("Accept terms to use"), "{html}");
@@ -864,7 +874,7 @@ mod tests {
             "notices": [{"type": "legal", "description": ["Legal notice"]}]
         }"#;
         let domain: Domain = serde_json::from_str(json).unwrap();
-        let html = domain_html(&domain, "rdap.example");
+        let html = domain_html(&domain, "rdap.example", "");
         assert!(html.contains("Service Notices"), "{html}");
         assert!(html.contains("legal"), "{html}");
         assert!(html.contains("Legal notice"), "{html}");
@@ -880,7 +890,7 @@ mod tests {
             "status": ["active"]
         }"#;
         let domain: Domain = serde_json::from_str(json).unwrap();
-        let html = domain_html(&domain, "rdap.example");
+        let html = domain_html(&domain, "rdap.example", "");
         assert!(!html.contains("Service Notices"), "{html}");
     }
 
@@ -897,7 +907,7 @@ mod tests {
             }]
         }"#;
         let domain: Domain = serde_json::from_str(json).unwrap();
-        let html = domain_html(&domain, "rdap.example");
+        let html = domain_html(&domain, "rdap.example", "");
         assert!(html.contains("Service Notices"), "{html}");
         assert!(html.contains("https://example.com/terms"), "{html}");
     }
@@ -911,7 +921,7 @@ mod tests {
             "rdapConformance": ["rdap_profile-1.0"]
         }"#;
         let domain: Domain = serde_json::from_str(json).unwrap();
-        let html = domain_html(&domain, "rdap.example");
+        let html = domain_html(&domain, "rdap.example", "");
         assert!(
             html.contains("Conformance Claims in Response from rdap.example"),
             "{html}"
@@ -927,7 +937,7 @@ mod tests {
             "status": ["active"]
         }"#;
         let domain: Domain = serde_json::from_str(json).unwrap();
-        let html = domain_html(&domain, "rdap.example");
+        let html = domain_html(&domain, "rdap.example", "");
         assert!(!html.contains("Conformance Claims"), "{html}");
     }
 
@@ -940,7 +950,7 @@ mod tests {
             "events": [{"eventAction": "registration", "eventDate": "2000-01-01T00:00:00Z"}]
         }"#;
         let domain: Domain = serde_json::from_str(json).unwrap();
-        let html = domain_html(&domain, "rdap.example");
+        let html = domain_html(&domain, "rdap.example", "");
         assert!(html.contains("Events"), "{html}");
         assert!(html.contains("registration"), "{html}");
         assert!(!html.contains("<th>Actor</th>"), "{html}");
@@ -955,7 +965,7 @@ mod tests {
             "events": [{"eventAction": "registration", "eventDate": "2000-01-01T00:00:00Z", "eventActor": "Example Corp"}]
         }"#;
         let domain: Domain = serde_json::from_str(json).unwrap();
-        let html = domain_html(&domain, "rdap.example");
+        let html = domain_html(&domain, "rdap.example", "");
         assert!(html.contains("Events"), "{html}");
         assert!(html.contains("registration"), "{html}");
         assert!(html.contains("<th>Actor</th>"), "{html}");

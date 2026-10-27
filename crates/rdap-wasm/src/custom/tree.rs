@@ -18,6 +18,7 @@ use icann_rdap_common::prelude::{
     Rpk1X509ResourceCert,
 };
 
+use super::anchor;
 use super::common::entity_label;
 use super::html::escape;
 use super::search::MAX_SEARCH_RESULTS;
@@ -42,6 +43,11 @@ pub(crate) struct TreeNode {
     pub meta: Option<String>,
     /// When true the line is rendered with error styling (failed referral).
     pub failed: bool,
+    /// In-page anchor id of the result-body element this node's data is
+    /// rendered into. When `Some`, the label is rendered as an in-page link
+    /// that scrolls the result pane to that element. `None` for the query
+    /// root, group nodes, truncation markers, and failed referrals.
+    pub target: Option<String>,
     pub children: Vec<TreeNode>,
 }
 
@@ -58,6 +64,7 @@ fn node(kind: &str, label: String) -> TreeNode {
         label,
         meta: None,
         failed: false,
+        target: None,
         children: Vec::new(),
     }
 }
@@ -67,16 +74,23 @@ fn handle_of(oc: &ObjectCommon) -> Option<String> {
 }
 
 /// Builds the full tree: query root → each response → subordinate objects.
+///
+/// Each response node is tagged with the anchor id its body is rendered
+/// under (`rdap-r{i}`, i = position among the root's children), so the
+/// tree links resolve to the matching result-body element.
 pub(crate) fn build_tree(
     query: &str,
     main: &ResponseData,
     referrals: &[ReferralOutcome],
 ) -> TreeNode {
     let mut root = node("query", query.to_string());
-    root.children.push(response_node(main, 1));
-    for outcome in referrals {
+    root.children
+        .push(response_node(main, 1, &anchor::response_anchor(0)));
+    for (i, outcome) in referrals.iter().enumerate() {
         match &outcome.result {
-            Ok(data) => root.children.push(response_node(data, 1)),
+            Ok(data) => root
+                .children
+                .push(response_node(data, 1, &anchor::response_anchor(i + 1))),
             Err(e) => {
                 let mut failed = node("referral", outcome.url.clone());
                 failed.failed = true;
@@ -93,46 +107,63 @@ pub(crate) fn build_tree(
 /// first child of the root is the answer to the query, the rest are referrals.
 /// Search-result responses become a group node (plural class badge + count)
 /// whose children are the contained object nodes.
-fn response_node(data: &ResponseData, depth: usize) -> TreeNode {
+///
+/// `anchor` is this response's in-page anchor; the node links to it and it
+/// is threaded down so subordinate object nodes get matching child anchors.
+fn response_node(data: &ResponseData, depth: usize, anchor: &str) -> TreeNode {
     let mut n = match &data.rdap {
-        RdapResponse::Domain(domain) => domain_node(domain, depth),
-        RdapResponse::Entity(entity) => entity_node(entity, depth),
-        RdapResponse::Nameserver(ns) => nameserver_node(ns),
-        RdapResponse::Network(network) => network_node(network, depth),
-        RdapResponse::Autnum(autnum) => autnum_node(autnum),
-        RdapResponse::Rpki1Roa(roa) => roa_node(roa, depth),
-        RdapResponse::Rpki1Aspa(aspa) => aspa_node(aspa, depth),
-        RdapResponse::Rpki1X509ResourceCert(cert) => x509_node(cert, depth),
+        RdapResponse::Domain(domain) => domain_node(domain, depth, anchor),
+        RdapResponse::Entity(entity) => entity_node(entity, depth, anchor),
+        RdapResponse::Nameserver(ns) => nameserver_node(ns, anchor),
+        RdapResponse::Network(network) => network_node(network, depth, anchor),
+        RdapResponse::Autnum(autnum) => autnum_node(autnum, anchor),
+        RdapResponse::Rpki1Roa(roa) => roa_node(roa, depth, anchor),
+        RdapResponse::Rpki1Aspa(aspa) => aspa_node(aspa, depth, anchor),
+        RdapResponse::Rpki1X509ResourceCert(cert) => x509_node(cert, depth, anchor),
         RdapResponse::ErrorResponse(err) => {
             let label = err
                 .title()
                 .map(|t| t.to_string())
                 .unwrap_or_else(|| err.error_code().to_string());
-            node("error", label)
+            let mut err_node = node("error", label);
+            err_node.target = Some(anchor.to_string());
+            err_node
         }
         RdapResponse::DomainSearchResults(s) => {
-            search_group("domains", s.results(), |r| domain_node(r, depth))
+            search_group("domains", s.results(), anchor, |r, a| {
+                domain_node(r, depth, a)
+            })
         }
         RdapResponse::EntitySearchResults(s) => {
-            search_group("entities", s.results(), |r| entity_node(r, depth))
+            search_group("entities", s.results(), anchor, |r, a| {
+                entity_node(r, depth, a)
+            })
         }
         RdapResponse::NameserverSearchResults(s) => {
-            search_group("nameservers", s.results(), nameserver_node)
+            search_group("nameservers", s.results(), anchor, nameserver_node)
         }
         RdapResponse::IpSearchResults(s) => {
-            search_group("networks", s.results(), |r| network_node(r, depth))
+            search_group("networks", s.results(), anchor, |r, a| {
+                network_node(r, depth, a)
+            })
         }
-        RdapResponse::AutnumSearchResults(s) => search_group("autnums", s.results(), autnum_node),
+        RdapResponse::AutnumSearchResults(s) => {
+            search_group("autnums", s.results(), anchor, autnum_node)
+        }
         RdapResponse::Rpki1RoaSearchResults(s) => {
-            search_group("roas", s.results(), |r| roa_node(r, depth))
+            search_group("roas", s.results(), anchor, |r, a| roa_node(r, depth, a))
         }
         RdapResponse::Rpki1AspaSearchResults(s) => {
-            search_group("aspas", s.results(), |r| aspa_node(r, depth))
+            search_group("aspas", s.results(), anchor, |r, a| aspa_node(r, depth, a))
         }
         RdapResponse::Rpki1X509ResourceCertSearchResults(s) => {
-            search_group("certs", s.results(), |r| x509_node(r, depth))
+            search_group("certs", s.results(), anchor, |r, a| x509_node(r, depth, a))
         }
-        other => node(&data.rdap_type, other.to_string()),
+        other => {
+            let mut n = node(&data.rdap_type, other.to_string());
+            n.target = Some(anchor.to_string());
+            n
+        }
     };
     // The authority host is the response's meta; a top-level entity node may
     // already carry its handle, so keep both rather than clobbering it.
@@ -145,36 +176,42 @@ fn response_node(data: &ResponseData, depth: usize) -> TreeNode {
 }
 
 /// A domain node: label is the LDH name (else handle), with the domain's
-/// entity and nameserver groups as children.
-fn domain_node(domain: &Domain, depth: usize) -> TreeNode {
+/// entity and nameserver groups as children. The node links to `anchor`.
+fn domain_node(domain: &Domain, depth: usize, anchor: &str) -> TreeNode {
     let label = domain
         .ldh_name
         .clone()
         .or_else(|| handle_of(&domain.object_common))
         .unwrap_or_default();
     let mut n = node("domain", label);
+    n.target = Some(anchor.to_string());
     push_subordinates(
         &mut n,
         domain.object_common.entities.as_deref(),
         domain.nameservers.as_deref(),
         depth,
+        anchor,
     );
     n
 }
 
-/// A nameserver node: label is the LDH name (else handle).
-fn nameserver_node(ns: &Nameserver) -> TreeNode {
+/// A nameserver node: label is the LDH name (else handle). The node links
+/// to `anchor` (its own body when a top-level response, or its list item
+/// when a subordinate of a domain).
+fn nameserver_node(ns: &Nameserver, anchor: &str) -> TreeNode {
     let label = ns
         .ldh_name
         .clone()
         .or_else(|| handle_of(&ns.object_common))
         .unwrap_or_default();
-    node("nameserver", label)
+    let mut n = node("nameserver", label);
+    n.target = Some(anchor.to_string());
+    n
 }
 
 /// A network node: label is the name, else start address, else handle, with
-/// its entity group as a child.
-fn network_node(network: &Network, depth: usize) -> TreeNode {
+/// its entity group as a child. The node links to `anchor`.
+fn network_node(network: &Network, depth: usize, anchor: &str) -> TreeNode {
     let label = network
         .name
         .as_deref()
@@ -183,24 +220,33 @@ fn network_node(network: &Network, depth: usize) -> TreeNode {
         .or_else(|| handle_of(&network.object_common))
         .unwrap_or_default();
     let mut n = node("network", label);
-    push_entities(&mut n, network.object_common.entities.as_deref(), depth);
+    n.target = Some(anchor.to_string());
+    push_entities(
+        &mut n,
+        network.object_common.entities.as_deref(),
+        depth,
+        anchor,
+    );
     n
 }
 
-/// An autnum node: label is the start ASN (else handle).
-fn autnum_node(autnum: &Autnum) -> TreeNode {
+/// An autnum node: label is the start ASN (else handle). Links to `anchor`.
+fn autnum_node(autnum: &Autnum, anchor: &str) -> TreeNode {
     let label = autnum
         .start_autnum
         .as_ref()
         .map(|s| s.to_string())
         .or_else(|| handle_of(&autnum.object_common))
         .unwrap_or_default();
-    node("autnum", label)
+    let mut n = node("autnum", label);
+    n.target = Some(anchor.to_string());
+    n
 }
 
 /// A ROA node: label is the name (else handle), meta the handle when the
-/// label came from the name, with its entity group as a child.
-fn roa_node(roa: &Rpk1Roa, depth: usize) -> TreeNode {
+/// label came from the name, with its entity group as a child. Links to
+/// `anchor`.
+fn roa_node(roa: &Rpk1Roa, depth: usize, anchor: &str) -> TreeNode {
     let label = roa
         .name
         .clone()
@@ -209,13 +255,15 @@ fn roa_node(roa: &Rpk1Roa, depth: usize) -> TreeNode {
     let meta = handle_of(&roa.object_common).filter(|h| *h != label);
     let mut n = node("roa", label);
     n.meta = meta;
-    push_entities(&mut n, roa.object_common.entities.as_deref(), depth);
+    n.target = Some(anchor.to_string());
+    push_entities(&mut n, roa.object_common.entities.as_deref(), depth, anchor);
     n
 }
 
 /// An ASPA node: label is the name (else handle), meta the handle when the
-/// label came from the name, with its entity group as a child.
-fn aspa_node(aspa: &Rpk1Aspa, depth: usize) -> TreeNode {
+/// label came from the name, with its entity group as a child. Links to
+/// `anchor`.
+fn aspa_node(aspa: &Rpk1Aspa, depth: usize, anchor: &str) -> TreeNode {
     let label = aspa
         .name
         .clone()
@@ -224,13 +272,19 @@ fn aspa_node(aspa: &Rpk1Aspa, depth: usize) -> TreeNode {
     let meta = handle_of(&aspa.object_common).filter(|h| *h != label);
     let mut n = node("aspa", label);
     n.meta = meta;
-    push_entities(&mut n, aspa.object_common.entities.as_deref(), depth);
+    n.target = Some(anchor.to_string());
+    push_entities(
+        &mut n,
+        aspa.object_common.entities.as_deref(),
+        depth,
+        anchor,
+    );
     n
 }
 
 /// An X.509 resource certificate node: label is the subject (else handle),
-/// meta the handle when the label came from the subject.
-fn x509_node(cert: &Rpk1X509ResourceCert, depth: usize) -> TreeNode {
+/// meta the handle when the label came from the subject. Links to `anchor`.
+fn x509_node(cert: &Rpk1X509ResourceCert, depth: usize, anchor: &str) -> TreeNode {
     let label = cert
         .subject
         .clone()
@@ -239,22 +293,31 @@ fn x509_node(cert: &Rpk1X509ResourceCert, depth: usize) -> TreeNode {
     let meta = handle_of(&cert.object_common).filter(|h| *h != label);
     let mut n = node("x509", label);
     n.meta = meta;
-    push_entities(&mut n, cert.object_common.entities.as_deref(), depth);
+    n.target = Some(anchor.to_string());
+    push_entities(
+        &mut n,
+        cert.object_common.entities.as_deref(),
+        depth,
+        anchor,
+    );
     n
 }
 
 /// Builds the group node for a search response: the badge is the plural
 /// result class, the meta is the total count, and the children are the
 /// contained object nodes (capped at [`MAX_SEARCH_RESULTS`] with a trailing
-/// "…and N more" node).
-fn search_group<T, F>(kind: &str, results: &[T], build: F) -> TreeNode
+/// "…and N more" node). Each child is built with its own search-item anchor
+/// so its node links to the matching result block.
+fn search_group<T, F>(kind: &str, results: &[T], anchor: &str, build: F) -> TreeNode
 where
-    F: Fn(&T) -> TreeNode,
+    F: Fn(&T, &str) -> TreeNode,
 {
     let mut group = node(kind, String::new());
     group.meta = Some(results.len().to_string());
-    for r in results.iter().take(MAX_SEARCH_RESULTS) {
-        group.children.push(build(r));
+    for (i, r) in results.iter().take(MAX_SEARCH_RESULTS).enumerate() {
+        group
+            .children
+            .push(build(r, &anchor::search_item_anchor(anchor, i)));
     }
     if results.len() > MAX_SEARCH_RESULTS {
         let more = results.len() - MAX_SEARCH_RESULTS;
@@ -266,28 +329,37 @@ where
 }
 
 /// Adds the `entities` and `nameservers` group nodes under a response.
+/// `anchor` is the parent object's anchor, used to build the nameserver
+/// list-item anchors.
 fn push_subordinates(
     parent: &mut TreeNode,
     entities: Option<&[Entity]>,
     nameservers: Option<&[Nameserver]>,
     depth: usize,
+    anchor: &str,
 ) {
     if depth >= MAX_TREE_DEPTH {
         return;
     }
-    push_entities(parent, entities, depth);
+    push_entities(parent, entities, depth, anchor);
     if let Some(nameservers) = nameservers
         && !nameservers.is_empty()
     {
         let mut group = node("nameservers", String::new());
         group.meta = Some(nameservers.len().to_string());
-        for ns in nameservers {
+        for (i, ns) in nameservers.iter().enumerate() {
             let label = ns
                 .ldh_name
                 .clone()
                 .or_else(|| handle_of(&ns.object_common))
                 .unwrap_or_default();
-            group.children.push(node("nameserver", label));
+            let mut ns_node = node("nameserver", label);
+            // Only ldh-named entries render a `<li>` in the body, so only
+            // those get a resolvable link target.
+            if ns.ldh_name.is_some() {
+                ns_node.target = Some(anchor::nameserver_anchor(anchor, i));
+            }
+            group.children.push(ns_node);
         }
         parent.children.push(group);
     }
@@ -295,43 +367,53 @@ fn push_subordinates(
 
 /// Adds an `entities` group node under `parent` when within the depth cap and
 /// the group has children. Shared by the network and RPKI object nodes.
-fn push_entities(parent: &mut TreeNode, entities: Option<&[Entity]>, depth: usize) {
+fn push_entities(parent: &mut TreeNode, entities: Option<&[Entity]>, depth: usize, anchor: &str) {
     if depth >= MAX_TREE_DEPTH {
         return;
     }
     if let Some(entities) = entities {
-        let group = entities_group(entities, depth);
+        let group = entities_group(entities, depth, anchor);
         if !group.children.is_empty() {
             parent.children.push(group);
         }
     }
 }
 
-fn entities_group(entities: &[Entity], depth: usize) -> TreeNode {
+fn entities_group(entities: &[Entity], depth: usize, anchor: &str) -> TreeNode {
     debug_assert!(
         depth < MAX_TREE_DEPTH,
         "entities_group must only be called within the depth cap"
     );
     let mut group = node("entities", String::new());
     group.meta = Some(entities.len().to_string());
-    for entity in entities {
-        group.children.push(entity_node(entity, depth + 1));
+    for (i, entity) in entities.iter().enumerate() {
+        group.children.push(entity_node(
+            entity,
+            depth + 1,
+            &anchor::entity_anchor(anchor, i),
+        ));
     }
     group
 }
 
 /// An entity node: label is its roles (else its handle), meta the handle
-/// when the label came from roles. Nested entities become children.
-fn entity_node(entity: &Entity, depth: usize) -> TreeNode {
+/// when the label came from roles. Nested entities become children. The
+/// node links to `anchor` (its entity block in the result body).
+fn entity_node(entity: &Entity, depth: usize, anchor: &str) -> TreeNode {
     let label = entity_label(entity).unwrap_or_default();
     let meta = handle_of(&entity.object_common).filter(|h| *h != label);
     let mut n = node("entity", label);
     n.meta = meta;
+    n.target = Some(anchor.to_string());
     if depth < MAX_TREE_DEPTH
         && let Some(subs) = &entity.object_common.entities
     {
-        for sub in subs {
-            n.children.push(entity_node(sub, depth + 1));
+        for (i, sub) in subs.iter().enumerate() {
+            n.children.push(entity_node(
+                sub,
+                depth + 1,
+                &anchor::entity_anchor(anchor, i),
+            ));
         }
     }
     n
@@ -371,7 +453,13 @@ fn render_node(node: &TreeNode, prefix: &str, is_last: bool, is_root: bool, out:
     let label_part = if node.label.is_empty() {
         String::new()
     } else {
-        format!(" <span class=\"tree_label\">{}</span>", escape(&node.label))
+        match &node.target {
+            Some(target) => format!(
+                " <a class=\"tree_link\" href=\"#{target}\"><span class=\"tree_label\">{}</span></a>",
+                escape(&node.label)
+            ),
+            None => format!(" <span class=\"tree_label\">{}</span>", escape(&node.label)),
+        }
     };
     let meta_part = match &node.meta {
         Some(meta) => format!(" <span class=\"tree_meta\">· {}</span>", escape(meta)),
@@ -683,6 +771,87 @@ mod tests {
         assert!(html.contains(">roa<"), "{html}");
         assert!(html.contains("One"), "{html}");
         assert!(html.contains("Two"), "{html}");
+    }
+
+    #[test]
+    fn response_node_label_is_an_in_page_link() {
+        // GIVEN a domain response rendered as the main (index 0) response
+        let data = domain_fixture();
+        let html = render_tree(&build_tree("example.com", &data, &[]));
+        // THEN the response node's label is wrapped in a tree_link pointing
+        // at the response body anchor
+        assert!(
+            html.contains("<a class=\"tree_link\" href=\"#rdap-r0\"><span class=\"tree_label\">example.com</span></a>"),
+            "{html}"
+        );
+    }
+
+    #[test]
+    fn entity_and_nameserver_nodes_link_to_their_blocks() {
+        // GIVEN a domain with entities and nameservers
+        let data = domain_fixture();
+        let html = render_tree(&build_tree("example.com", &data, &[]));
+        // THEN each entity node links to its entity-block anchor and each
+        // nameserver node links to its list-item anchor
+        assert!(html.contains("href=\"#rdap-r0-ent-0\""), "{html}");
+        assert!(html.contains("href=\"#rdap-r0-ent-1\""), "{html}");
+        assert!(html.contains("href=\"#rdap-r0-ns-0\""), "{html}");
+        assert!(html.contains("href=\"#rdap-r0-ns-1\""), "{html}");
+    }
+
+    #[test]
+    fn group_and_root_nodes_are_not_links() {
+        // GIVEN a tree with group nodes and a query root
+        let data = domain_fixture();
+        let html = render_tree(&build_tree("example.com", &data, &[]));
+        // THEN the query root and the group badges carry no tree_link
+        let root_line = html.split("<div").nth(1).unwrap_or("");
+        assert!(!root_line.contains("tree_link"), "{root_line}");
+        // the entities/nameservers group lines have empty labels, so no link
+        for seg in html.split("<div") {
+            if seg.contains(">entities<") || seg.contains(">nameservers<") {
+                assert!(!seg.contains("tree_link"), "group node linked: {seg}");
+            }
+        }
+    }
+
+    #[test]
+    fn every_tree_link_target_exists_in_the_rendered_body() {
+        // GIVEN the tree and the result body built from the same response
+        let data = domain_fixture();
+        let tree = render_tree(&build_tree("example.com", &data, &[]));
+        let body = crate::custom::render_response_body(&data, &anchor::response_anchor(0));
+        // WHEN every href target is collected from the tree
+        let targets: Vec<&str> = tree
+            .split("href=\"#")
+            .skip(1)
+            .map(|s| s.split('"').next().unwrap_or(""))
+            .collect();
+        // THEN there is at least one link and each target has a matching id
+        assert!(!targets.is_empty(), "expected tree links: {tree}");
+        for t in targets {
+            assert!(
+                body.contains(&format!("id=\"{t}\"")),
+                "tree link target #{t} missing from body: {body}"
+            );
+        }
+    }
+
+    #[test]
+    fn failed_referral_has_no_link() {
+        // GIVEN a failed referral
+        let data = domain_fixture();
+        let outcome = ReferralOutcome {
+            url: "https://rdap.example/entity/299".to_string(),
+            result: Err(RdapClientError::InvalidQueryValue),
+        };
+        let html = render_tree(&build_tree("example.com", &data, &[outcome]));
+        // THEN the failed referral line carries no tree_link
+        for seg in html.split("<div") {
+            if seg.contains("rdap.example/entity/299") {
+                assert!(!seg.contains("tree_link"), "failed referral linked: {seg}");
+            }
+        }
     }
 
     #[test]

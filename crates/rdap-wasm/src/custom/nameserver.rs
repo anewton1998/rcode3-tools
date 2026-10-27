@@ -3,7 +3,7 @@ use icann_rdap_common::prelude::Nameserver;
 use super::common::append_common;
 use super::html::{addr_with_scopes, kv_table, mono, push_unicode, render, row, title, with_copy};
 
-pub(crate) fn nameserver_html(ns: &Nameserver, authority: &str) -> String {
+pub(crate) fn nameserver_html(ns: &Nameserver, authority: &str, anchor: &str) -> String {
     let oc = &ns.object_common;
     let mut summary = Vec::new();
     if let Some(name) = ns.ldh_name.as_deref() {
@@ -47,8 +47,8 @@ pub(crate) fn nameserver_html(ns: &Nameserver, authority: &str) -> String {
         title("Nameserver", ns.ldh_name.as_deref()),
         kv_table(&summary),
     ];
-    append_common(&mut parts, authority, oc, &ns.common);
-    render(parts)
+    append_common(&mut parts, authority, oc, &ns.common, anchor);
+    render(parts, anchor)
 }
 
 #[cfg(test)]
@@ -65,7 +65,7 @@ mod tests {
             "ipAddresses": {"v4": ["192.0.2.1"], "v6": ["2001:db8::1"]}
         }"#;
         let ns: Nameserver = serde_json::from_str(json).unwrap();
-        let html = nameserver_html(&ns, "rdap.example");
+        let html = nameserver_html(&ns, "rdap.example", "");
         assert!(html.contains("IPv4"), "{html}");
         assert!(html.contains("192.0.2.1"), "{html}");
         assert!(html.contains("IPv6"), "{html}");
@@ -81,7 +81,7 @@ mod tests {
             "ipAddresses": {"v4": ["192.0.2.1"], "v6": ["2001:db8::1"]}
         }"#;
         let ns: Nameserver = serde_json::from_str(json).unwrap();
-        let html = nameserver_html(&ns, "rdap.example");
+        let html = nameserver_html(&ns, "rdap.example", "");
         assert!(
             html.contains("query = '192.0.2.1'; queryType = 'ip_v4_addr'; lookup()"),
             "{html}"
@@ -102,7 +102,7 @@ mod tests {
             "ipAddresses": {"v4": ["192.0.2.1", "192.0.2.2"], "v6": ["2001:db8::1", "2001:db8::2"]}
         }"#;
         let ns: Nameserver = serde_json::from_str(json).unwrap();
-        let html = nameserver_html(&ns, "rdap.example");
+        let html = nameserver_html(&ns, "rdap.example", "");
         let v4_rows = html.matches("<td class=\"data_key\">IPv4</td>").count();
         let v6_rows = html.matches("<td class=\"data_key\">IPv6</td>").count();
         assert_eq!(v4_rows, 2, "expected one IPv4 row per address: {html}");
@@ -132,7 +132,7 @@ mod tests {
         let ns: Nameserver = serde_json::from_str(json).unwrap();
 
         // WHEN rendered
-        let html = nameserver_html(&ns, "rdap.example");
+        let html = nameserver_html(&ns, "rdap.example", "");
 
         // THEN each address is followed by "(⌕ …)" with the four scope icon links
         assert!(html.contains("(\u{2315}"), "missing search glyph: {html}");
@@ -169,7 +169,7 @@ mod tests {
         let ns: Nameserver = serde_json::from_str(json).unwrap();
 
         // WHEN rendered
-        let html = nameserver_html(&ns, "rdap.example");
+        let html = nameserver_html(&ns, "rdap.example", "");
 
         // THEN the name and each address have a copy button
         assert!(
@@ -191,7 +191,7 @@ mod tests {
         let ns: Nameserver = serde_json::from_str(json).unwrap();
 
         // WHEN rendered
-        let html = nameserver_html(&ns, "rdap.example");
+        let html = nameserver_html(&ns, "rdap.example", "");
 
         // THEN the copy value is the dot-stripped canonical name
         assert!(

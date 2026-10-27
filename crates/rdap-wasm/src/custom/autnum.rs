@@ -3,7 +3,7 @@ use icann_rdap_common::prelude::Autnum;
 use super::common::append_common;
 use super::html::{escape, kv_table, lookup_with_scopes, mono, render, row, title, with_copy};
 
-pub(crate) fn autnum_html(a: &Autnum, authority: &str) -> String {
+pub(crate) fn autnum_html(a: &Autnum, authority: &str, anchor: &str) -> String {
     let oc = &a.object_common;
     let start = a.start_autnum.as_ref().and_then(|n| n.as_u32());
     let end = a.end_autnum.as_ref().and_then(|n| n.as_u32());
@@ -46,8 +46,8 @@ pub(crate) fn autnum_html(a: &Autnum, authority: &str) -> String {
     }
 
     let mut parts = vec![title("Autnum", label.as_deref()), kv_table(&summary)];
-    append_common(&mut parts, authority, oc, &a.common);
-    render(parts)
+    append_common(&mut parts, authority, oc, &a.common, anchor);
+    render(parts, anchor)
 }
 
 #[cfg(test)]
@@ -66,7 +66,7 @@ mod tests {
             "country": "US"
         }"#;
         let a: Autnum = serde_json::from_str(json).unwrap();
-        let html = autnum_html(&a, "rdap.example");
+        let html = autnum_html(&a, "rdap.example", "");
         assert!(html.contains("Start AS"), "{html}");
         assert!(html.contains("AS15169"), "{html}");
         assert!(html.contains("GOOGLE"), "{html}");
@@ -81,7 +81,7 @@ mod tests {
             "endAutnum": 15170
         }"#;
         let a: Autnum = serde_json::from_str(json).unwrap();
-        let html = autnum_html(&a, "rdap.example");
+        let html = autnum_html(&a, "rdap.example", "");
         assert!(
             html.contains("query = '15169'; queryType = 'as_number'; lookup()"),
             "{html}"
@@ -109,7 +109,7 @@ mod tests {
         let a: Autnum = serde_json::from_str(json).unwrap();
 
         // WHEN rendered
-        let html = autnum_html(&a, "rdap.example");
+        let html = autnum_html(&a, "rdap.example", "");
 
         // THEN each ASN is followed by "(⌕ …)" with the four scope icon links
         assert!(html.contains("(\u{2315}"), "missing search glyph: {html}");
@@ -141,7 +141,7 @@ mod tests {
         let a: Autnum = serde_json::from_str(json).unwrap();
 
         // WHEN rendered
-        let html = autnum_html(&a, "rdap.example");
+        let html = autnum_html(&a, "rdap.example", "");
 
         // THEN each ASN has a copy button carrying the bare number
         // (not the display-only "AS" prefix)
