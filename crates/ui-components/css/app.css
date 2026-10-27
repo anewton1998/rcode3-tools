@@ -244,10 +244,10 @@
 	flex: 0 0 auto;
 }
 
-/* Share link (paperclip) on each history entry: copies a shareable URL
-   to the clipboard, mirroring the results-panel copy buttons. The
-   U+FE0E variation selector renders U+1F517 as a monochrome glyph so
-   it picks up the action color like the SVG copy icons. */
+/* Share link on each history entry: copies a shareable URL to the
+   clipboard, mirroring the results-panel copy buttons. The link and
+   copied-check are inline stroke SVGs (currentColor) so they pick up the
+   action color and render identically across browsers. */
 .share_link {
 	flex: 0 0 auto;
 	color: var(--theme-action-color);
@@ -262,6 +262,12 @@
 
 .share_copied {
 	color: var(--theme-accent-color);
+}
+
+.share-icon {
+	width: 1em;
+	height: 1em;
+	vertical-align: -0.125em;
 }
 
 .history_meta {

@@ -249,7 +249,7 @@
                     <li>Enter a domain name, e.g. <a href="#" class="example_link" @click.prevent="runExample('rcode3.com')"><code>rcode3.com</code></a></li>
                     <li>Or IP, e.g. <a href="#" class="example_link" @click.prevent="runExample('192.0.2.1')"><code>192.0.2.1</code></a>, or <a href="#" class="example_link" @click.prevent="runExample('rdns:192.0.2.1')"><code>rdns:192.0.2.1</code></a>, or <a href="#" class="example_link" @click.prevent="runExample('up:192.0.2.1')"><code>up:192.0.2.1</code></a></li>
                     <li>Or ASN, e.g. <a href="#" class="example_link" @click.prevent="runExample('as20144')"><code>as20144</code></a></li>
-                    <li><span class="info_text">&#x1F517;&#xFE0E;</span> share &nbsp; <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="copy-icon info_text"><rect width="8" height="4" x="8" y="2" rx="1" ry="1"/><path d="M16 4h2a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h2"/></svg> copy &nbsp; <span class="info_text">&#x21E3;</span> download</li>
+                    <li><svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="share-icon info_text"><path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"/><path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"/></svg> share &nbsp; <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="copy-icon info_text"><rect width="8" height="4" x="8" y="2" rx="1" ry="1"/><path d="M16 4h2a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h2"/></svg> copy &nbsp; <span class="info_text">&#x21E3;</span> download</li>
                 </ul>
             </section>
         </div>
@@ -281,14 +281,15 @@
                                     <a href="#" class="requery_link" :class="{ 'requery_link_disabled': busy }"
                                        @click.prevent="requery(entry)">Re-query</a>
                                     {# Share link: copies a URL that reopens the explorer
-                       with this entry's query. U+FE0E forces the text
-                       presentation of U+1F517 so it inherits the theme
-                       action color instead of the blue emoji glyph. #}
+                       with this entry's query. The link and copied-check
+                       are inline stroke SVGs (currentColor) so they
+                       inherit the theme action color and render
+                       identically across browsers, unlike the emoji. #}
                                     <a href="#" class="share_link"
                                        x-data="{ copied: false }"
                                        :href="shareUrl(entry)"
                                        :title="copied ? 'Link copied' : 'Copy share link to clipboard'"
-                                       @click.prevent="copyToClipboard(shareUrl(entry)).then(() => { copied = true; setTimeout(() => copied = false, 2000) })"><span x-show="!copied">&#x1F517;&#xFE0E;</span><span class="share_copied" x-show="copied">&#x2713;</span></a>
+                                       @click.prevent="copyToClipboard(shareUrl(entry)).then(() => { copied = true; setTimeout(() => copied = false, 2000) })"><svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="share-icon" x-show="!copied"><path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"/><path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"/></svg><svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="share-icon share_copied" x-show="copied"><path d="M20 6 9 17l-5-5"/></svg></a>
                                 </span>
                             </div>
                             <div class="history_meta">

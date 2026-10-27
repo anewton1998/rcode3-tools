@@ -10,6 +10,7 @@ crate-type = ["cdylib", "rlib"]
 console_error_panic_hook = "0.1"
 icann-rdap-client.workspace = true
 icann-rdap-common.workspace = true
+ipnet = "2"
 js-sys.workspace = true
 serde = { version = "1", features = ["derive"] }
 serde-wasm-bindgen.workspace = true

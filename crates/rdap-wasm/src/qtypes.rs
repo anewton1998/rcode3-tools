@@ -9,8 +9,12 @@
 //! → `ip_v4_cidr`), plus the special `"auto"` code which preserves the
 //! auto-detecting [`FromStr`] behavior.
 
+use std::net::IpAddr;
+
 use icann_rdap_client::RdapClientError;
 use icann_rdap_client::rdap::{QueryType, QueryTypeVariant};
+use icann_rdap_common::rdns::ip_to_reverse_dns;
+use ipnet::IpNet;
 use serde::Serialize;
 use strum::VariantArray;
 
@@ -161,6 +165,76 @@ pub fn query_type_from_code(code: &str, value: &str) -> Result<QueryType, RdapCl
     build(variant, value)
 }
 
+/// Builds an rDNS query from `value`, auto-detecting the address family.
+///
+/// `v4`/`v6` are the same-scope reverse-DNS constructors (e.g. `rdns_ipv4`
+/// and `rdns_ipv6`). The selected dropdown code only fixes the *scope*; the
+/// *family* is taken from the value itself:
+/// - a plain IPv4/IPv6 address is converted to its reverse DNS domain and
+///   routed to the matching-family constructor, so a family mismatch with the
+///   chosen type is corrected rather than rejected;
+/// - a CIDR block (e.g. `192.0.2.0/24`) is converted to the reverse DNS zone
+///   that covers it (see [`ipnet_to_reverse_dns`]);
+/// - a non-IP value (an already-valid `*.in-addr.arpa` / `*.ip6.arpa` name)
+///   is passed through unchanged, trying the IPv4 then IPv6 constructor so
+///   either family's domain resolves under any rdns code.
+fn rdns_build(
+    value: &str,
+    v4: fn(&str) -> Result<QueryType, RdapClientError>,
+    v6: fn(&str) -> Result<QueryType, RdapClientError>,
+) -> Result<QueryType, RdapClientError> {
+    let v = value.trim();
+    if let Ok(net) = v.parse::<IpNet>() {
+        let domain = ipnet_to_reverse_dns(&net);
+        return match net {
+            IpNet::V4(_) => v4(&domain),
+            IpNet::V6(_) => v6(&domain),
+        };
+    }
+    match v.parse::<IpAddr>() {
+        Ok(ip @ IpAddr::V4(_)) => v4(&ip_to_reverse_dns(&ip)),
+        Ok(ip @ IpAddr::V6(_)) => v6(&ip_to_reverse_dns(&ip)),
+        Err(_) => v4(v).or_else(|_| v6(v)),
+    }
+}
+
+/// Converts an [`IpNet`] to the reverse DNS zone name that covers it.
+///
+/// The reverse DNS format can only express prefixes on label boundaries:
+/// IPv4 on octet boundaries (`/8`, `/16`, `/24`, `/32`) and IPv6 on nibble
+/// boundaries (multiples of 4). A prefix that isn't label-aligned is floored
+/// to the nearest coarser boundary, so the returned zone always contains the
+/// input network (e.g. `192.0.2.128/25` → `2.0.192.in-addr.arpa`, a `/24`).
+fn ipnet_to_reverse_dns(net: &IpNet) -> String {
+    match net {
+        IpNet::V4(v4) => {
+            let octets = v4.network().octets();
+            let labels = (v4.prefix_len() / 8) as usize;
+            let parts: Vec<String> = octets[..labels]
+                .iter()
+                .rev()
+                .map(|o| o.to_string())
+                .collect();
+            format!("{}.in-addr.arpa", parts.join("."))
+        }
+        IpNet::V6(v6) => {
+            let nibbles: Vec<u8> = v6
+                .network()
+                .octets()
+                .iter()
+                .flat_map(|b| [b >> 4, b & 0x0f])
+                .collect();
+            let take = (v6.prefix_len() / 4) as usize;
+            let parts: Vec<String> = nibbles[..take]
+                .iter()
+                .rev()
+                .map(|n| format!("{n:x}"))
+                .collect();
+            format!("{}.ip6.arpa", parts.join("."))
+        }
+    }
+}
+
 /// Constructs the [`QueryType`] for a given variant from a single text value.
 fn build(v: QueryTypeVariant, value: &str) -> Result<QueryType, RdapClientError> {
     use QueryTypeVariant as Q;
@@ -192,16 +266,23 @@ fn build(v: QueryTypeVariant, value: &str) -> Result<QueryType, RdapClientError>
         Q::AsNumberBottom => QueryType::autnum_bottom(value),
         Q::Domain => QueryType::domain(value),
         Q::ALabel => QueryType::alabel(value),
-        Q::RdnsIpv4 => QueryType::rdns_ipv4(value),
-        Q::RdnsIpv6 => QueryType::rdns_ipv6(value),
-        Q::RdnsIpv4Up => QueryType::rdns_ipv4_up(value),
-        Q::RdnsIpv6Up => QueryType::rdns_ipv6_up(value),
-        Q::RdnsIpv4Down => QueryType::rdns_ipv4_down(value),
-        Q::RdnsIpv6Down => QueryType::rdns_ipv6_down(value),
-        Q::RdnsIpv4Top => QueryType::rdns_ipv4_top(value),
-        Q::RdnsIpv6Top => QueryType::rdns_ipv6_top(value),
-        Q::RdnsIpv4Bottom => QueryType::rdns_ipv4_bottom(value),
-        Q::RdnsIpv6Bottom => QueryType::rdns_ipv6_bottom(value),
+        // The dropdown code fixes the scope; the address family is auto-detected
+        // from the value (first arg = IPv4 ctor, second = IPv6 ctor).
+        Q::RdnsIpv4 | Q::RdnsIpv6 => rdns_build(value, QueryType::rdns_ipv4, QueryType::rdns_ipv6),
+        Q::RdnsIpv4Up | Q::RdnsIpv6Up => {
+            rdns_build(value, QueryType::rdns_ipv4_up, QueryType::rdns_ipv6_up)
+        }
+        Q::RdnsIpv4Down | Q::RdnsIpv6Down => {
+            rdns_build(value, QueryType::rdns_ipv4_down, QueryType::rdns_ipv6_down)
+        }
+        Q::RdnsIpv4Top | Q::RdnsIpv6Top => {
+            rdns_build(value, QueryType::rdns_ipv4_top, QueryType::rdns_ipv6_top)
+        }
+        Q::RdnsIpv4Bottom | Q::RdnsIpv6Bottom => rdns_build(
+            value,
+            QueryType::rdns_ipv4_bottom,
+            QueryType::rdns_ipv6_bottom,
+        ),
         Q::Entity => Ok(QueryType::Entity(value.to_string())),
         Q::Nameserver => QueryType::ns(value),
         Q::EntityNameSearch => Ok(QueryType::EntityNameSearch(value.to_string())),
@@ -303,6 +384,123 @@ mod tests {
             query_type_from_code("url", "https://rdap.example.com/domain/x").unwrap(),
             QueryType::Url(_)
         ));
+    }
+
+    #[test]
+    fn rdns_ipv4_converts_plain_ip() {
+        // GIVEN the rdns_ipv4 code and a plain IPv4 address
+        // WHEN built
+        let q = query_type_from_code("rdns_ipv4", "192.0.2.1").unwrap();
+        // THEN it becomes the /32 reverse-DNS query for that address
+        match q {
+            QueryType::RdnsIpv4(net) => assert_eq!(net.to_string(), "192.0.2.1/32"),
+            other => panic!("expected RdnsIpv4, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn rdns_ipv6_converts_plain_ip() {
+        // GIVEN the rdns_ipv6 code and a plain IPv6 address
+        // WHEN built
+        let q = query_type_from_code("rdns_ipv6", "2001:db8::1").unwrap();
+        // THEN it becomes the /128 reverse-DNS query for that address
+        match q {
+            QueryType::RdnsIpv6(net) => assert_eq!(net.to_string(), "2001:db8::1/128"),
+            other => panic!("expected RdnsIpv6, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn rdns_auto_routes_family_mismatch() {
+        // GIVEN rdns_ipv4 chosen but an IPv6 address entered (and vice versa)
+        // WHEN built
+        let q = query_type_from_code("rdns_ipv4", "2001:db8::1").unwrap();
+        let r = query_type_from_code("rdns_ipv6", "192.0.2.1").unwrap();
+        // THEN each routes to the constructor matching the IP's actual family
+        assert!(matches!(q, QueryType::RdnsIpv6(_)), "{q:?}");
+        assert!(matches!(r, QueryType::RdnsIpv4(_)), "{r:?}");
+    }
+
+    #[test]
+    fn rdns_auto_route_preserves_scope() {
+        // GIVEN scoped rdns codes with a mismatched-family IP
+        // WHEN built
+        let up = query_type_from_code("rdns_ipv4_up", "2001:db8::1").unwrap();
+        let bottom = query_type_from_code("rdns_ipv6_bottom", "192.0.2.1").unwrap();
+        // THEN the scope is kept while the family is corrected
+        assert!(matches!(up, QueryType::RdnsIpv6Up(_)), "{up:?}");
+        assert!(matches!(bottom, QueryType::RdnsIpv4Bottom(_)), "{bottom:?}");
+    }
+
+    #[test]
+    fn rdns_existing_domain_unchanged() {
+        // GIVEN an already-valid reverse DNS domain (not a plain IP)
+        // WHEN built with rdns_ipv4
+        let q = query_type_from_code("rdns_ipv4", "1.2.0.192.in-addr.arpa").unwrap();
+        // THEN it parses unchanged to the same /32 the IP conversion would give
+        match q {
+            QueryType::RdnsIpv4(net) => assert_eq!(net.to_string(), "192.0.2.1/32"),
+            other => panic!("expected RdnsIpv4, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn rdns_ipv4_accepts_cidr() {
+        // GIVEN the rdns_ipv4 code and a CIDR block
+        // WHEN built
+        let q = query_type_from_code("rdns_ipv4", "192.0.2.0/24").unwrap();
+        // THEN it becomes the /24 reverse-DNS query for that network
+        match q {
+            QueryType::RdnsIpv4(net) => assert_eq!(net.to_string(), "192.0.2.0/24"),
+            other => panic!("expected RdnsIpv4, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn rdns_ipv6_accepts_cidr() {
+        // GIVEN the rdns_ipv6 code and an IPv6 CIDR block
+        // WHEN built
+        let q = query_type_from_code("rdns_ipv6", "2001:db8::/32").unwrap();
+        // THEN it becomes the /32 reverse-DNS query for that network
+        match q {
+            QueryType::RdnsIpv6(net) => assert_eq!(net.to_string(), "2001:db8::/32"),
+            other => panic!("expected RdnsIpv6, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn rdns_cidr_floors_to_label_boundary() {
+        // GIVEN a prefix that isn't on a reverse-DNS label boundary
+        // WHEN built
+        let q = query_type_from_code("rdns_ipv4", "192.0.2.128/25").unwrap();
+        // THEN it floors to the containing /24 zone
+        match q {
+            QueryType::RdnsIpv4(net) => assert_eq!(net.to_string(), "192.0.2.0/24"),
+            other => panic!("expected RdnsIpv4, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn rdns_cidr_normalizes_host_bits() {
+        // GIVEN a CIDR whose address carries host bits
+        // WHEN built
+        let q = query_type_from_code("rdns_ipv4", "192.0.2.7/24").unwrap();
+        // THEN it normalizes to the network address
+        match q {
+            QueryType::RdnsIpv4(net) => assert_eq!(net.to_string(), "192.0.2.0/24"),
+            other => panic!("expected RdnsIpv4, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn rdns_cidr_auto_routes_family_and_scope() {
+        // GIVEN a scoped rdns code with a CIDR of the other family
+        // WHEN built
+        let up = query_type_from_code("rdns_ipv4_up", "2001:db8::/32").unwrap();
+        let down = query_type_from_code("rdns_ipv6_down", "192.0.2.0/24").unwrap();
+        // THEN family is corrected while the scope is preserved
+        assert!(matches!(up, QueryType::RdnsIpv6Up(_)), "{up:?}");
+        assert!(matches!(down, QueryType::RdnsIpv4Down(_)), "{down:?}");
     }
 
     #[test]
