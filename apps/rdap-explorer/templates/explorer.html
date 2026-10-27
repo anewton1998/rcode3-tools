@@ -105,10 +105,20 @@
                 };
                 try {
                     // One fetch yields the result HTML with the result tree
-                    // already embedded beneath the host/received banner.
+                    // already embedded beneath the host/received banner. A
+                    // non-200 renders its error details (or a "no
+                    // information" message) in `html`, with a short summary
+                    // in `error` that drives the red line and the history
+                    // entry. Only a transport failure throws.
                     const r = await window.RdapClient.rdapExplorerWithTree(q, t);
                     this.result = r.html;
+                    this.error = r.error || '';
+                    if (r.error) {
+                        entry.status = 'error';
+                        entry.error = r.error.slice(0, ERROR_MAX);
+                    }
                 } catch (e) {
+                    // Transport-level failure: no HTTP response to render.
                     entry.status = 'error';
                     entry.error = String(e).slice(0, ERROR_MAX);
                     this.error = String(e);
@@ -230,7 +240,7 @@
                     {{ query_type_select_html|safe }}
                 </div>
                 <span x-show="busy">{{ progress_bar_html|safe }}</span>
-                <span class="error_text" x-show="error" x-text="error"></span>
+                <span class="error_text error_line" x-show="error" x-text="error"></span>
             </section>
 
             <section class="panel panel_help">

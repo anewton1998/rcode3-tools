@@ -9,6 +9,7 @@ use icann_rdap_client::http::default_exts_list;
 use icann_rdap_client::prelude::*;
 use icann_rdap_client::rdap::ResponseData;
 use icann_rdap_client::rdap::redacted::simplify_redactions;
+use icann_rdap_common::httpdata::HttpData;
 use icann_rdap_common::prelude::ExtensionId;
 use qtypes::{query_type_from_code, query_type_groups};
 use wasm_bindgen::JsValue;
@@ -149,19 +150,33 @@ pub async fn rdap_explorer(query: &str, query_type: Option<String>) -> Result<Js
     serde_wasm_bindgen::to_value(&data).map_err(|e| JsValue::from_str(&e.to_string()))
 }
 
+/// The failure modes of a main-response fetch, distinguished so the result
+/// panel can render a "no information" message for a non-RDAP body while
+/// still throwing for genuine transport errors.
+#[derive(Debug)]
+enum FetchError {
+    /// The server responded (we have HTTP data) but the body was not a
+    /// parseable RDAP response — there is nothing to render but the status.
+    NoInformation(Box<HttpData>),
+    /// A transport-level error with no usable HTTP response.
+    Transport(RdapClientError),
+}
+
 /// Fetches the main response and follows its related referrals, collecting
 /// each outcome so the result HTML and the summary tree are built from the
 /// exact same data — one fetch, no possible disagreement between them.
+///
+/// A non-200 status is *not* an error here: an error response is rendered in
+/// the result panel by the caller. Only a body that fails to parse as RDAP
+/// (`NoInformation`) or a transport failure short-circuits.
 async fn fetch_with_referrals(
     code: &str,
     value: &str,
-) -> Result<(ResponseData, Vec<custom::ReferralOutcome>), String> {
-    let data = lookup_typed(code, value)
-        .await
-        .map_err(|e| custom::describe_error(&e))?;
-    if data.http_data.status_code >= 400 {
-        return Err(custom::http_error_message(&data));
-    }
+) -> Result<(ResponseData, Vec<custom::ReferralOutcome>), FetchError> {
+    let data = lookup_typed(code, value).await.map_err(|e| match e {
+        RdapClientError::ParsingError(info) => FetchError::NoInformation(Box::new(info.http_data)),
+        other => FetchError::Transport(other),
+    })?;
     let mut referrals = Vec::new();
     for url in custom::referral_urls(&data) {
         referrals.push(custom::ReferralOutcome {
@@ -188,6 +203,9 @@ fn render_result_html(data: &ResponseData, referrals: &[custom::ReferralOutcome]
 /// Runs an RDAP lookup and resolves with an HTML fragment rendered by the
 /// custom client-side logic in `custom.rs`.
 ///
+/// Error responses (non-200 with an RDAP error body) and "no information"
+/// responses render into the returned HTML; only a transport failure throws.
+///
 /// `query_type` selects the [`QueryType`] to build (see `queryTypeGroups`);
 /// `None` (or `"auto"`) auto-detects from the query string.
 #[wasm_bindgen]
@@ -195,10 +213,16 @@ pub async fn rdap_explorer_html(
     query: &str,
     query_type: Option<String>,
 ) -> Result<String, JsValue> {
-    let (data, referrals) = fetch_with_referrals(query_type.as_deref().unwrap_or("auto"), query)
-        .await
-        .map_err(|e| JsValue::from_str(&e))?;
-    Ok(render_result_html(&data, &referrals))
+    let code = query_type.as_deref().unwrap_or("auto");
+    match fetch_with_referrals(code, query).await {
+        Ok((data, referrals)) => Ok(render_result_html(&data, &referrals)),
+        Err(FetchError::NoInformation(http)) => Ok(format!(
+            "{}{}",
+            custom::banner_from_http(&http),
+            custom::no_information_html(http.status_code)
+        )),
+        Err(FetchError::Transport(e)) => Err(JsValue::from_str(&custom::describe_error(&e))),
+    }
 }
 
 /// The payload returned by [`rdap_explorer_with_tree`].
@@ -206,37 +230,69 @@ pub async fn rdap_explorer_html(
 struct LookupResult {
     html: String,
     tree: String,
+    /// A short human-readable error for the red line in the input panel and
+    /// the history entry; empty for a normal (200) response.
+    error: String,
 }
 
-/// Runs an RDAP lookup and resolves with `{ html, tree }`. The `html` is the
-/// result-panel fragment with the collapsible box-drawing result tree embedded
-/// directly beneath the host/received banner and above the response body; the
-/// `tree` field carries the same tree lines on their own. Everything derives
-/// from a single fetch, so the tree can never disagree with the rendered body.
+/// Runs an RDAP lookup and resolves with `{ html, tree, error }`. The `html`
+/// is the result-panel fragment with the collapsible box-drawing result tree
+/// embedded directly beneath the host/received banner and above the response
+/// body; the `tree` field carries the same tree lines on their own; the
+/// `error` field is a short message for the red line / history when the
+/// response is an error (empty otherwise). Everything derives from a single
+/// fetch, so the tree can never disagree with the rendered body.
+///
+/// A non-200 with an RDAP error body renders in `html` (with `error` set);
+/// a non-200 with no parseable RDAP body renders a "no information" panel;
+/// only a transport failure throws.
 #[wasm_bindgen(js_name = rdapExplorerWithTree)]
 pub async fn rdap_explorer_with_tree(
     query: &str,
     query_type: Option<String>,
 ) -> Result<JsValue, JsValue> {
-    let (data, referrals) = fetch_with_referrals(query_type.as_deref().unwrap_or("auto"), query)
-        .await
-        .map_err(|e| JsValue::from_str(&e))?;
-    let tree_node = custom::build_tree(query, &data, &referrals);
-    let tree = custom::render_tree(&tree_node);
-    // Result-panel order: host/received banner → result tree → response body
-    // → followed referrals (each with its own banner).
-    let mut html = custom::render_response_banner(&data);
-    html.push_str(&custom::tree_block(&tree));
-    html.push_str(&custom::render_response_body(&data));
-    for outcome in &referrals {
-        html.push_str(&custom::referral_divider());
-        match &outcome.result {
-            Ok(referral) => html.push_str(&custom::render_response_html(referral)),
-            Err(e) => html.push_str(&custom::referral_error_note(&outcome.url, e)),
+    let code = query_type.as_deref().unwrap_or("auto");
+    let result = match fetch_with_referrals(code, query).await {
+        Ok((data, referrals)) => {
+            let tree_node = custom::build_tree(query, &data, &referrals);
+            let tree = custom::render_tree(&tree_node);
+            // Result-panel order: host/received banner → result tree →
+            // response body → followed referrals (each with its own banner).
+            let mut html = custom::render_response_banner(&data);
+            html.push_str(&custom::tree_block(&tree));
+            html.push_str(&custom::render_response_body(&data));
+            for outcome in &referrals {
+                html.push_str(&custom::referral_divider());
+                match &outcome.result {
+                    Ok(referral) => html.push_str(&custom::render_response_html(referral)),
+                    Err(e) => html.push_str(&custom::referral_error_note(&outcome.url, e)),
+                }
+            }
+            let error = if data.http_data.status_code >= 400 {
+                custom::http_error_message(&data)
+            } else {
+                String::new()
+            };
+            LookupResult { html, tree, error }
         }
-    }
-    serde_wasm_bindgen::to_value(&LookupResult { html, tree })
-        .map_err(|e| JsValue::from_str(&e.to_string()))
+        Err(FetchError::NoInformation(http)) => {
+            let status = http.status_code;
+            let html = format!(
+                "{}{}",
+                custom::banner_from_http(&http),
+                custom::no_information_html(status)
+            );
+            LookupResult {
+                html,
+                tree: String::new(),
+                error: format!("No information returned (HTTP {status})"),
+            }
+        }
+        Err(FetchError::Transport(e)) => {
+            return Err(JsValue::from_str(&custom::describe_error(&e)));
+        }
+    };
+    serde_wasm_bindgen::to_value(&result).map_err(|e| JsValue::from_str(&e.to_string()))
 }
 
 #[cfg(test)]

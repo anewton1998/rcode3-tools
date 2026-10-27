@@ -103,6 +103,13 @@ fn response_node(data: &ResponseData, depth: usize) -> TreeNode {
         RdapResponse::Rpki1Roa(roa) => roa_node(roa, depth),
         RdapResponse::Rpki1Aspa(aspa) => aspa_node(aspa, depth),
         RdapResponse::Rpki1X509ResourceCert(cert) => x509_node(cert, depth),
+        RdapResponse::ErrorResponse(err) => {
+            let label = err
+                .title()
+                .map(|t| t.to_string())
+                .unwrap_or_else(|| err.error_code().to_string());
+            node("error", label)
+        }
         RdapResponse::DomainSearchResults(s) => {
             search_group("domains", s.results(), |r| domain_node(r, depth))
         }
@@ -554,13 +561,42 @@ mod tests {
 
     #[test]
     fn unsupported_class_falls_back_to_rdap_type() {
-        // GIVEN a response the tree has no dedicated node for (an error doc)
-        let json = r#"{ "errorCode": 404, "title": "Not Found" }"#;
-        let data = response(json, "error", "rdap.example");
-        let html = render_tree(&build_tree("nope", &data, &[]));
+        // GIVEN a response the tree has no dedicated node for (a help doc)
+        let json = r#"{
+            "rdapConformance": ["rdap_level_0"],
+            "notices": [{"title": "Help", "description": ["RDAP help"]}]
+        }"#;
+        let data = response(json, "help", "rdap.example");
+        // WHEN
+        let html = render_tree(&build_tree("help", &data, &[]));
         // THEN it still renders a node tagged with the rdap_type and host.
-        assert!(html.contains(">error<"), "{html}");
+        assert!(html.contains(">help<"), "{html}");
         assert!(html.contains("rdap.example"), "{html}");
+    }
+
+    #[test]
+    fn error_response_renders_error_node_with_title() {
+        // GIVEN an RFC 9083 error response with a title
+        let json = r#"{ "errorCode": 404, "title": "Not Found" }"#;
+        let data = response(json, "ErrorResponse", "rdap.example");
+        // WHEN
+        let html = render_tree(&build_tree("missing.test", &data, &[]));
+        // THEN the node is badged `error`, labelled by the title, with the host.
+        assert!(html.contains(">error<"), "{html}");
+        assert!(html.contains("Not Found"), "{html}");
+        assert!(html.contains("rdap.example"), "{html}");
+    }
+
+    #[test]
+    fn error_response_without_title_uses_code_as_label() {
+        // GIVEN an error response with no title
+        let json = r#"{ "errorCode": 500 }"#;
+        let data = response(json, "ErrorResponse", "rdap.example");
+        // WHEN
+        let html = render_tree(&build_tree("boom.test", &data, &[]));
+        // THEN the node label falls back to the error code.
+        assert!(html.contains(">error<"), "{html}");
+        assert!(html.contains("500"), "{html}");
     }
 
     #[test]

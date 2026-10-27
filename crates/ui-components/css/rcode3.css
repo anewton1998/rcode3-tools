@@ -955,7 +955,6 @@ rcode3_status_text {
 
 .error_text {
 	color: var(--theme-danger-color);
-	animation: blink-error-text 1s infinite;
 }
 
 .mono_text {

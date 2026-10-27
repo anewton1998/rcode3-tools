@@ -139,10 +139,22 @@
 	margin-top: .75em;
 }
 
+/* Color-only error text, consistent with `.info_text` / `.warning_text`, so
+   it can be used inline (table cells, list items) without shifting or
+   blinking. The standalone lookup-error line uses `.error_line` for the
+   block layout and attention animation. */
 .error_text {
+	color: var(--theme-danger-color);
+}
+
+/* The standalone error line under the query input: a block element with top
+   spacing and a pulsing attention animation. Kept separate from the
+   color-only `.error_text` so inline error text is neither shifted nor made
+   to blink. */
+.error_line {
 	display: block;
 	margin-top: .75em;
-	color: var(--theme-danger-color);
+	animation: blink-error-text 1s infinite;
 }
 
 /* ---- Summary query-history list ---- */

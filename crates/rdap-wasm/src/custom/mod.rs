@@ -12,21 +12,31 @@ mod tree;
 
 use icann_rdap_client::RdapClientError;
 use icann_rdap_client::rdap::ResponseData;
+use icann_rdap_common::httpdata::HttpData;
 use icann_rdap_common::prelude::RdapResponse;
 
+pub(crate) use error::no_information_html;
 pub use error::{describe_error, http_error_message};
 pub(crate) use tree::{ReferralOutcome, build_tree, render_tree, tree_block};
 
-/// Renders the "Response" data table section.
-pub fn render_response_banner(data: &ResponseData) -> String {
-    let host = data.http_data.host();
-    let time = data.http_data.received();
-    let time_str = time.to_rfc3339();
+/// Renders the host/received banner from raw HTTP data.
+///
+/// Split out from [`render_response_banner`] so the "no information" path
+/// (which has only `HttpData` from a parsing error, not a full
+/// `ResponseData`) can render the same banner.
+pub(crate) fn banner_from_http(http: &HttpData) -> String {
+    let host = http.host();
+    let time_str = http.received().to_rfc3339();
     format!(
         "<table class=\"data_table\"><tbody><tr><td class=\"data_key\">Host</td><td class=\"mono_text\">{}</td></tr><tr><td class=\"data_key\">Received</td><td class=\"mono_text\">{}</td></tr></tbody></table>",
         html::escape(host),
         html::escape(&time_str)
     )
+}
+
+/// Renders the "Response" data table section.
+pub fn render_response_banner(data: &ResponseData) -> String {
+    banner_from_http(&data.http_data)
 }
 
 /// Renders the results-panel HTML for any supported RDAP response.
@@ -53,6 +63,7 @@ pub(crate) fn render_response_body(data: &ResponseData) -> String {
         RdapResponse::Rpki1Roa(roa) => parts.push(rpki::roa_html(roa, authority)),
         RdapResponse::Rpki1Aspa(aspa) => parts.push(rpki::aspa_html(aspa, authority)),
         RdapResponse::Rpki1X509ResourceCert(cert) => parts.push(rpki::x509_html(cert, authority)),
+        RdapResponse::ErrorResponse(err) => parts.push(error::error_response_html(err, authority)),
         RdapResponse::DomainSearchResults(s) => parts.push(search::search_results_html(
             "Domain Search Results",
             s.results(),
@@ -140,4 +151,43 @@ pub fn referral_error_note(url: &str, e: &RdapClientError) -> String {
         html::escape(url),
         html::escape(&describe_error(e))
     )
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use icann_rdap_common::httpdata::HttpData;
+
+    fn error_response_data() -> ResponseData {
+        let rdap: RdapResponse = serde_json::from_str(
+            r#"{ "errorCode": 404, "title": "Not Found", "description": ["missing"] }"#,
+        )
+        .unwrap();
+        let http_data = HttpData::builder()
+            .host("rdap.example".to_string())
+            .status_code(404)
+            .received(chrono::Utc::now())
+            .build();
+        ResponseData {
+            rdap,
+            rdap_type: "ErrorResponse".to_string(),
+            http_data,
+        }
+    }
+
+    #[test]
+    fn render_response_body_routes_error_to_error_renderer() {
+        // GIVEN an RFC 9083 error response
+        let data = error_response_data();
+        // WHEN the object-class body is rendered
+        let body = render_response_body(&data);
+        // THEN it uses the dedicated error renderer, not the generic
+        // `info_text` fallback that prints the rdap_type.
+        assert!(body.contains("RDAP Error"), "{body}");
+        assert!(body.contains("Not Found"), "{body}");
+        assert!(
+            !body.contains("ErrorResponse"),
+            "should not fall back to the rdap_type text: {body}"
+        );
+    }
 }
