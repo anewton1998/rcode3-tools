@@ -4,6 +4,7 @@ mod common;
 mod domain;
 mod entity;
 mod error;
+mod help;
 mod html;
 mod nameserver;
 mod network;
@@ -96,6 +97,7 @@ pub(crate) fn render_response_body(data: &ResponseData, anchor: &str) -> String 
         RdapResponse::ErrorResponse(err) => {
             parts.push(error::error_response_html(err, authority, anchor))
         }
+        RdapResponse::Help(help) => parts.push(help::help_html(help, authority, anchor)),
         RdapResponse::DomainSearchResults(s) => parts.push(search::search_results_html(
             "Domain Search Results",
             s.results(),
@@ -162,13 +164,6 @@ pub(crate) fn render_response_body(data: &ResponseData, anchor: &str) -> String 
                 rpki::x509_html,
             ))
         }
-        other => parts.push(html::render(
-            vec![format!(
-                "<span class=\"info_text\">{}</span>",
-                html::escape(&other.to_string())
-            )],
-            anchor,
-        )),
     }
     parts.join("")
 }
@@ -252,7 +247,13 @@ mod tests {
         assert!(html.contains("Other Formats"), "{html}");
         assert!(html.contains("data-download-format=\"rpsl\""), "{html}");
         assert!(html.contains("data-download-format=\"json\""), "{html}");
-        assert!(html.contains("RPSL <span class=\"format_arrow\">\u{21E3}</span>"), "{html}");
-        assert!(html.contains("JSON <span class=\"format_arrow\">\u{21E3}</span>"), "{html}");
+        assert!(
+            html.contains("RPSL <span class=\"format_arrow\">\u{21E3}</span>"),
+            "{html}"
+        );
+        assert!(
+            html.contains("JSON <span class=\"format_arrow\">\u{21E3}</span>"),
+            "{html}"
+        );
     }
 }

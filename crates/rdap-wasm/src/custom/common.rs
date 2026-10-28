@@ -391,7 +391,7 @@ fn ends_with_punctuation(s: &str) -> bool {
         || trimmed.ends_with(';')
 }
 
-fn notices_list(notices: &[Notice]) -> String {
+pub(crate) fn notices_list(notices: &[Notice]) -> String {
     let mut html = String::new();
     for notice in notices.iter() {
         let nr = &notice.0;

@@ -47,8 +47,11 @@
         // known values, even from tampered storage.
         function sanitizeEntry(raw) {
             if (!raw || typeof raw !== 'object') return null;
-            if (typeof raw.query !== 'string' || raw.query.length === 0 || raw.query.length > QUERY_MAX) return null;
+            if (typeof raw.query !== 'string' || raw.query.length > QUERY_MAX) return null;
             if (typeof raw.queryType !== 'string') return null;
+            // The server help query carries no value; every other type
+            // needs a non-empty query to be a well-formed entry.
+            if (raw.query.length === 0 && raw.queryType !== 'help') return null;
             if (raw.status !== 'ok' && raw.status !== 'error') return null;
             if (!Number.isFinite(raw.id)) return null;
             return {
@@ -62,6 +65,9 @@
                 // Absent on older entries → '' (Re-query keeps the current base).
                 base: typeof raw.base === 'string' ? raw.base.slice(0, BASE_URL_MAX) : '',
                 baseCustom: typeof raw.baseCustom === 'string' ? raw.baseCustom.slice(0, BASE_URL_MAX) : '',
+                // Response host, shown in the summary for value-less
+                // queries (server help) that have no query to display.
+                host: typeof raw.host === 'string' ? raw.host.slice(0, BASE_URL_MAX) : '',
             };
         }
 
@@ -84,6 +90,9 @@
             busy: false,
             rpslText: '', // downloadable RPSL for the current result
             jsonText: '',  // downloadable JSON for the current result
+            // The authority host of the current result; used for download
+            // file names when the query carries no value (server help).
+            responseHost: '',
             history: [],    // newest first
             activeId: null, // entry currently shown in Results
 
@@ -152,7 +161,11 @@
                 try { this.queryTypeGroups = await window.RdapClient.queryTypeGroups(); }
                 catch (e) { console.error('failed to load query types', e); }
 
-                if (incoming) {
+                // A shared `?type=help` link runs with an empty query box,
+                // mirroring the blank-input exception in lookup() (the
+                // custom-base requirement still applies as for any
+                // Targeted query).
+                if (incoming || params.get('type') === 'help') {
                     this.query = incoming.slice(0, QUERY_MAX);
                     this.queryType = params.get('type') || 'auto';
                     this.enforceCustomBaseIfNeeded();
@@ -165,9 +178,11 @@
 
             async lookup() {
                 if (this.busy) return;
-                const q = this.query.trim();
-                if (!q) return;
                 const t = this.queryType;
+                const q = this.query.trim();
+                // The server help query carries no value; every other
+                // type needs something in the box to look up.
+                if (!q && t !== 'help') return;
                 // Resolve + validate the base URL for every type except the
                 // Explicit URL, which carries its own full URL and ignores
                 // the base. An invalid custom base aborts before going busy.
@@ -197,8 +212,14 @@
                 this.error = '';
                 const entry = {
                     id: Date.now() * 1000 + (seq++ % 1000),
-                    query: q.slice(0, QUERY_MAX),
+                    // A server help query carries no value; record it
+                    // empty so the summary shows the response host and
+                    // Re-query/share never resurrect meaningless text.
+                    query: t === 'help' ? '' : q.slice(0, QUERY_MAX),
                     queryType: t,
+                    // The authority host the response came from; shown in
+                    // the summary for value-less queries (server help).
+                    host: '',
                     // Record the base used so Re-query reproduces it.
                     base: this.baseUrlChoice,
                     baseCustom: this.baseUrlChoice === 'custom' ? this.baseUrlCustom.trim() : '',
@@ -218,6 +239,8 @@
                     this.error = r.error || '';
                     this.rpslText = r.rpsl || '';
                     this.jsonText = r.json || '';
+                    this.responseHost = (r.host || '').slice(0, BASE_URL_MAX);
+                    entry.host = this.responseHost;
                     if (r.error) {
                         entry.status = 'error';
                         entry.error = r.error.slice(0, ERROR_MAX);
@@ -230,6 +253,7 @@
                     this.result = '';
                     this.rpslText = '';
                     this.jsonText = '';
+                    this.responseHost = '';
                 }
                 this.record(entry);
                 this.persistBaseUrl();
@@ -374,10 +398,12 @@
             },
 
             // File name derived from the current query so downloads from
-            // different lookups stay distinguishable. Unsafe characters are
-            // collapsed to underscores and the name is length-capped.
+            // different lookups stay distinguishable. Server help carries
+            // no query value, so it names the file after the response
+            // host. Unsafe characters are collapsed to underscores and
+            // the name is length-capped.
             downloadName(fmt) {
-                const base = (this.query || '')
+                const base = (this.queryType === 'help' ? this.responseHost : this.query || '')
                     .trim()
                     .replace(/[^a-zA-Z0-9._-]+/g, '_')
                     .replace(/^_+|_+$/g, '')
@@ -523,7 +549,9 @@
                                       'history_item_active': entry.id === activeId }">
                             <hr class="history_divider" x-show="index > 0">
                             <div class="history_row">
-                                <span class="history_query" x-text="entry.query"></span>
+                                {# Value-less queries (server help) show the response host;
+                       a help lookup that never got a response shows a placeholder. #}
+                                <span class="history_query" x-text="entry.query || entry.host || '(no response)'"></span>
                                 <span class="history_actions">
                                     {# Re-query: a real link (hover shows the full
                        query/type/base URL) that also re-runs in place via the

@@ -276,6 +276,10 @@ fn build_json(
 struct LookupResult {
     html: String,
     tree: String,
+    /// The authority host the response came from. Used by the history
+    /// summary and the download file names when the query itself carries
+    /// no meaningful value (e.g. a server help query).
+    host: String,
     /// A short human-readable error for the red line in the input panel and
     /// the history entry; empty for a normal (200) response.
     error: String,
@@ -337,6 +341,7 @@ pub async fn rdap_explorer_with_tree(
             LookupResult {
                 html,
                 tree,
+                host: data.http_data.host().to_string(),
                 error,
                 rpsl,
                 json,
@@ -352,6 +357,7 @@ pub async fn rdap_explorer_with_tree(
             LookupResult {
                 html,
                 tree: String::new(),
+                host: http.host().to_string(),
                 error: format!("No information returned (HTTP {status})"),
                 rpsl: String::new(),
                 json: String::new(),

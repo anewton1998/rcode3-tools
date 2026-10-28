@@ -129,6 +129,11 @@ fn response_node(data: &ResponseData, depth: usize, anchor: &str) -> TreeNode {
             err_node.target = Some(anchor.to_string());
             err_node
         }
+        RdapResponse::Help(_) => {
+            let mut help_node = node("help", "Server Help".to_string());
+            help_node.target = Some(anchor.to_string());
+            help_node
+        }
         RdapResponse::DomainSearchResults(s) => {
             search_group("domains", s.results(), anchor, |r, a| {
                 domain_node(r, depth, a)
@@ -158,11 +163,6 @@ fn response_node(data: &ResponseData, depth: usize, anchor: &str) -> TreeNode {
         }
         RdapResponse::Rpki1X509ResourceCertSearchResults(s) => {
             search_group("certs", s.results(), anchor, |r, a| x509_node(r, depth, a))
-        }
-        other => {
-            let mut n = node(&data.rdap_type, other.to_string());
-            n.target = Some(anchor.to_string());
-            n
         }
     };
     // The authority host is the response's meta; a top-level entity node may
@@ -648,17 +648,19 @@ mod tests {
     }
 
     #[test]
-    fn unsupported_class_falls_back_to_rdap_type() {
-        // GIVEN a response the tree has no dedicated node for (a help doc)
+    fn help_response_renders_dedicated_help_node() {
+        // GIVEN an RFC 9083 help response
         let json = r#"{
             "rdapConformance": ["rdap_level_0"],
             "notices": [{"title": "Help", "description": ["RDAP help"]}]
         }"#;
-        let data = response(json, "help", "rdap.example");
+        let data = response(json, "Help", "rdap.example");
         // WHEN
         let html = render_tree(&build_tree("help", &data, &[]));
-        // THEN it still renders a node tagged with the rdap_type and host.
+        // THEN it renders the dedicated `help` node labelled "Server Help"
+        // with the authority host, not a generic rdap_type fallback.
         assert!(html.contains(">help<"), "{html}");
+        assert!(html.contains("Server Help"), "{html}");
         assert!(html.contains("rdap.example"), "{html}");
     }
 
