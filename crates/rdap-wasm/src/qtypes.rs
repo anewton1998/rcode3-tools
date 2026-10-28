@@ -32,9 +32,10 @@ pub struct QueryTypeGroup {
     pub options: Vec<QueryTypeOption>,
 }
 
-/// The curated set surfaced in the "Common" group.
-const COMMON: &[QueryTypeVariant] = &[
+/// The curated set surfaced in the "Lookups" group.
+const LOOKUPS: &[QueryTypeVariant] = &[
     QueryTypeVariant::Domain,
+    QueryTypeVariant::ALabel,
     QueryTypeVariant::IpV4Addr,
     QueryTypeVariant::IpV6Addr,
     QueryTypeVariant::IpV4Cidr,
@@ -44,8 +45,122 @@ const COMMON: &[QueryTypeVariant] = &[
     QueryTypeVariant::Entity,
     QueryTypeVariant::RdnsIpv4,
     QueryTypeVariant::RdnsIpv6,
-    QueryTypeVariant::Help,
     QueryTypeVariant::Url,
+];
+
+/// RPKI object queries (ROAs, ASPAs, X.509 resource certs), surfaced in the
+/// "Experimental" group. Digest lookups are excluded entirely (see
+/// [`is_digest`]); every other `Rpki1*` variant, searches included, lives here.
+const EXPERIMENTAL: &[QueryTypeVariant] = &[
+    QueryTypeVariant::Rpki1RoaHandle,
+    QueryTypeVariant::Rpki1RoaIp,
+    QueryTypeVariant::Rpki1RoaCidr,
+    QueryTypeVariant::Rpki1RoaNameSearch,
+    QueryTypeVariant::Rpki1RoaOriginAutnumSearch,
+    QueryTypeVariant::Rpki1AspaHandle,
+    QueryTypeVariant::Rpki1AspaAutnum,
+    QueryTypeVariant::Rpki1AspaNameSearch,
+    QueryTypeVariant::Rpki1AspaProviderAutnumSearch,
+    QueryTypeVariant::Rpki1X509ResourceCertHandle,
+    QueryTypeVariant::Rpki1X509ResourceCertIssuerSearch,
+    QueryTypeVariant::Rpki1X509ResourceCertSubjectSearch,
+    QueryTypeVariant::Rpki1X509ResourceCertSkiSearch,
+    QueryTypeVariant::Rpki1X509ResourceCertIpSearch,
+    QueryTypeVariant::Rpki1X509ResourceCertCidrSearch,
+    QueryTypeVariant::Rpki1X509ResourceCertAutnumSearch,
+];
+
+/// Server help plus the non-RPKI targeted searches.
+const TARGETED: &[QueryTypeVariant] = &[
+    QueryTypeVariant::Help,
+    QueryTypeVariant::EntityNameSearch,
+    QueryTypeVariant::EntityHandleSearch,
+    QueryTypeVariant::NetworkNameSearch,
+    QueryTypeVariant::NetworkHandleSearch,
+    QueryTypeVariant::DomainNameSearch,
+    QueryTypeVariant::DomainNsNameSearch,
+    QueryTypeVariant::DomainNsIpSearch,
+    QueryTypeVariant::NameserverNameSearch,
+    QueryTypeVariant::NameserverIpSearch,
+    QueryTypeVariant::AutnumNameSearch,
+    QueryTypeVariant::AutnumHandleSearch,
+];
+
+/// RIR scoped queries: every up/down/top/bottom variant.
+const RIR_SEARCH: &[QueryTypeVariant] = &[
+    QueryTypeVariant::IpV4AddrUp,
+    QueryTypeVariant::IpV6AddrUp,
+    QueryTypeVariant::IpV4CidrUp,
+    QueryTypeVariant::IpV6CidrUp,
+    QueryTypeVariant::IpV4AddrDown,
+    QueryTypeVariant::IpV6AddrDown,
+    QueryTypeVariant::IpV4CidrDown,
+    QueryTypeVariant::IpV6CidrDown,
+    QueryTypeVariant::IpV4AddrTop,
+    QueryTypeVariant::IpV6AddrTop,
+    QueryTypeVariant::IpV4CidrTop,
+    QueryTypeVariant::IpV6CidrTop,
+    QueryTypeVariant::IpV4AddrBottom,
+    QueryTypeVariant::IpV6AddrBottom,
+    QueryTypeVariant::IpV4CidrBottom,
+    QueryTypeVariant::IpV6CidrBottom,
+    QueryTypeVariant::AsNumberUp,
+    QueryTypeVariant::AsNumberDown,
+    QueryTypeVariant::AsNumberTop,
+    QueryTypeVariant::AsNumberBottom,
+    QueryTypeVariant::RdnsIpv4Up,
+    QueryTypeVariant::RdnsIpv6Up,
+    QueryTypeVariant::RdnsIpv4Down,
+    QueryTypeVariant::RdnsIpv6Down,
+    QueryTypeVariant::RdnsIpv4Top,
+    QueryTypeVariant::RdnsIpv6Top,
+    QueryTypeVariant::RdnsIpv4Bottom,
+    QueryTypeVariant::RdnsIpv6Bottom,
+];
+
+/// A curated dropdown group: its display label, its variants, and whether the
+/// auto-detect option is prepended to it.
+struct GroupSpec {
+    label: &'static str,
+    variants: &'static [QueryTypeVariant],
+    auto_detect: bool,
+}
+
+/// The dropdown groups in display order.
+///
+/// Every non-digest [`QueryTypeVariant`] appears in exactly one group; the
+/// coverage test enforces this so a new upstream variant can't silently go
+/// unoffered.
+const GROUPS: &[GroupSpec] = &[
+    GroupSpec {
+        label: "Lookups",
+        variants: LOOKUPS,
+        auto_detect: true,
+    },
+    GroupSpec {
+        label: "Targeted Query",
+        variants: TARGETED,
+        auto_detect: false,
+    },
+    GroupSpec {
+        label: "RIR Search",
+        variants: RIR_SEARCH,
+        auto_detect: false,
+    },
+    GroupSpec {
+        label: "Experimental",
+        variants: EXPERIMENTAL,
+        auto_detect: false,
+    },
+];
+
+/// Directional code suffixes and their display words, shared by
+/// [`pick_label`]'s composition and the RIR grouping tests.
+const DIRECTIONS: [(&str, &str); 4] = [
+    ("_up", "up"),
+    ("_down", "down"),
+    ("_top", "top"),
+    ("_bottom", "bottom"),
 ];
 
 /// RPKI digest lookups need two inputs (algorithm + hex digest) and cannot be
@@ -90,10 +205,12 @@ fn humanize(code: &str) -> String {
         .join(" ")
 }
 
-/// Hand-picked labels for the curated "Common" group.
-fn common_label(code: &str) -> Option<&'static str> {
+/// Hand-picked labels for base (non-directional) query codes.
+fn curated_label(code: &str) -> Option<&'static str> {
     Some(match code {
+        // Lookups
         "domain" => "Domain",
+        "alabel" => "A-Label (punycode)",
         "ip_v4_addr" => "IPv4 address",
         "ip_v6_addr" => "IPv6 address",
         "ip_v4_cidr" => "IPv4 CIDR",
@@ -103,50 +220,91 @@ fn common_label(code: &str) -> Option<&'static str> {
         "entity" => "Entity handle",
         "rdns_ipv4" => "Reverse DNS (IPv4)",
         "rdns_ipv6" => "Reverse DNS (IPv6)",
-        "help" => "Server help",
         "url" => "Explicit URL",
+        // Targeted Query
+        "help" => "Server help",
+        "entity_name_search" => "Entity name search",
+        "entity_handle_search" => "Entity handle search",
+        "network_name_search" => "Network name search",
+        "network_handle_search" => "Network handle search",
+        "domain_name_search" => "Domain name search",
+        "domain_ns_name_search" => "Domain nameserver name search",
+        "domain_ns_ip_search" => "Domain nameserver IP search",
+        "nameserver_name_search" => "Nameserver name search",
+        "nameserver_ip_search" => "Nameserver IP search",
+        "autnum_name_search" => "ASN name search",
+        "autnum_handle_search" => "ASN handle search",
+        // Experimental (RPKI)
+        "rpki1_roa_handle" => "ROA by handle",
+        "rpki1_roa_ip" => "ROA by IP",
+        "rpki1_roa_cidr" => "ROA by CIDR",
+        "rpki1_roa_name_search" => "ROA name search",
+        "rpki1_roa_origin_autnum_search" => "ROA origin ASN search",
+        "rpki1_aspa_handle" => "ASPA by handle",
+        "rpki1_aspa_autnum" => "ASPA by ASN",
+        "rpki1_aspa_name_search" => "ASPA name search",
+        "rpki1_aspa_provider_autnum_search" => "ASPA provider ASN search",
+        "rpki1_x509_resource_cert_handle" => "X.509 resource cert by handle",
+        "rpki1_x509_resource_cert_issuer_search" => "X.509 issuer search",
+        "rpki1_x509_resource_cert_subject_search" => "X.509 subject search",
+        "rpki1_x509_resource_cert_ski_search" => "X.509 SKI search",
+        "rpki1_x509_resource_cert_ip_search" => "X.509 IP search",
+        "rpki1_x509_resource_cert_cidr_search" => "X.509 CIDR search",
+        "rpki1_x509_resource_cert_autnum_search" => "X.509 ASN search",
         _ => return None,
     })
 }
 
-/// Builds the grouped option list: "Common" (curated, auto-detect first)
-/// followed by "All query types" (every non-digest variant not already in
-/// Common). No code appears in both groups.
-pub fn query_type_groups() -> Vec<QueryTypeGroup> {
-    let mut common_options = vec![QueryTypeOption {
-        code: "auto".to_string(),
-        label: "Auto-detect".to_string(),
-    }];
-    let mut common_codes: Vec<String> = Vec::with_capacity(COMMON.len());
-    for v in COMMON {
-        let code = code_of(v);
-        let label = common_label(&code)
-            .map(str::to_string)
-            .unwrap_or_else(|| humanize(&code));
-        common_codes.push(code.clone());
-        common_options.push(QueryTypeOption { code, label });
+/// Friendly label for any query code: a curated name when one exists, a
+/// composed `<base label> <direction>` for the RIR scoped queries (codes
+/// ending in `_up`/`_down`/`_top`/`_bottom`), or [`humanize`] as a fallback.
+fn pick_label(code: &str) -> String {
+    if let Some(label) = curated_label(code) {
+        return label.to_string();
     }
+    for (suffix, dir) in DIRECTIONS {
+        if let Some(base) = code.strip_suffix(suffix)
+            && let Some(base_label) = curated_label(base)
+        {
+            return format!("{base_label} {dir}");
+        }
+    }
+    humanize(code)
+}
 
-    let all_options: Vec<QueryTypeOption> = QueryTypeVariant::VARIANTS
+/// Builds the grouped option list from [`GROUPS`]: "Lookups" (with
+/// auto-detect first), "Experimental" (RPKI), "Targeted Query" (help and
+/// the targeted searches) and "RIR Search" (up/down/top/bottom). No code
+/// appears in more than one group.
+pub fn query_type_groups() -> Vec<QueryTypeGroup> {
+    GROUPS
         .iter()
-        .filter(|v| !is_digest(v) && !common_codes.contains(&code_of(v)))
-        .map(|v| {
-            let code = code_of(v);
-            let label = humanize(&code);
-            QueryTypeOption { code, label }
+        .map(|spec| {
+            let mut options: Vec<QueryTypeOption> = spec
+                .variants
+                .iter()
+                .filter(|v| !is_digest(v))
+                .map(|v| {
+                    let code = code_of(v);
+                    let label = pick_label(&code);
+                    QueryTypeOption { code, label }
+                })
+                .collect();
+            if spec.auto_detect {
+                options.insert(
+                    0,
+                    QueryTypeOption {
+                        code: "auto".to_string(),
+                        label: "Auto-detect".to_string(),
+                    },
+                );
+            }
+            QueryTypeGroup {
+                label: spec.label.to_string(),
+                options,
+            }
         })
-        .collect();
-
-    vec![
-        QueryTypeGroup {
-            label: "Common".to_string(),
-            options: common_options,
-        },
-        QueryTypeGroup {
-            label: "All query types".to_string(),
-            options: all_options,
-        },
-    ]
+        .collect()
 }
 
 /// Builds a concrete [`QueryType`] from a dropdown `code` and the raw `value`.
@@ -585,9 +743,11 @@ mod tests {
     #[test]
     fn groups_have_no_duplicate_codes_and_exclude_digests() {
         let groups = query_type_groups();
-        assert_eq!(groups.len(), 2);
-        assert_eq!(groups[0].label, "Common");
-        assert_eq!(groups[1].label, "All query types");
+        let labels: Vec<&str> = groups.iter().map(|g| g.label.as_str()).collect();
+        assert_eq!(
+            labels,
+            ["Lookups", "Targeted Query", "RIR Search", "Experimental"]
+        );
 
         let mut seen: Vec<String> = Vec::new();
         for group in &groups {
@@ -605,9 +765,134 @@ mod tests {
                 seen.push(opt.code.clone());
             }
         }
-        // auto + 12 common + the rest
+        // auto-detect leads the Lookups group
         assert_eq!(groups[0].options[0].code, "auto");
-        assert_eq!(groups[0].options.len(), COMMON.len() + 1);
+        assert_eq!(groups[0].options.len(), LOOKUPS.len() + 1);
+    }
+
+    #[test]
+    fn lookups_group_contains_expected_codes() {
+        // GIVEN the generated groups
+        let groups = query_type_groups();
+        let lookups: Vec<&str> = groups[0].options.iter().map(|o| o.code.as_str()).collect();
+        // THEN auto-detect and the curated lookup codes are present, including
+        // the A-Label that was added when "Common" became "Lookups"
+        for code in [
+            "auto",
+            "domain",
+            "alabel",
+            "ip_v4_addr",
+            "ip_v6_addr",
+            "ip_v4_cidr",
+            "ip_v6_cidr",
+            "as_number",
+            "nameserver",
+            "entity",
+            "rdns_ipv4",
+            "rdns_ipv6",
+            "url",
+        ] {
+            assert!(lookups.contains(&code), "lookups missing {code}");
+        }
+        // AND help is not a lookup (it moved to Targeted Query)
+        assert!(!lookups.contains(&"help"));
+    }
+
+    /// Codes of the group with the given label.
+    fn group_codes<'a>(groups: &'a [QueryTypeGroup], label: &str) -> Vec<&'a str> {
+        groups
+            .iter()
+            .find(|g| g.label == label)
+            .unwrap_or_else(|| panic!("no group labelled {label}"))
+            .options
+            .iter()
+            .map(|o| o.code.as_str())
+            .collect()
+    }
+
+    #[test]
+    fn targeted_query_group_has_help_and_non_rpki_searches() {
+        // GIVEN the generated groups
+        let groups = query_type_groups();
+        let targeted = group_codes(&groups, "Targeted Query");
+        // THEN server help and every non-RPKI search is present
+        assert_eq!(targeted[0], "help");
+        for code in [
+            "entity_name_search",
+            "entity_handle_search",
+            "network_name_search",
+            "network_handle_search",
+            "domain_name_search",
+            "domain_ns_name_search",
+            "domain_ns_ip_search",
+            "nameserver_name_search",
+            "nameserver_ip_search",
+            "autnum_name_search",
+            "autnum_handle_search",
+        ] {
+            assert!(targeted.contains(&code), "targeted missing {code}");
+        }
+        // AND no RPKI search leaked in (those live in Experimental)
+        assert!(
+            !targeted.iter().any(|c| c.starts_with("rpki1_")),
+            "rpki search leaked into Targeted Query"
+        );
+    }
+
+    #[test]
+    fn experimental_group_holds_all_non_digest_rpki_variants() {
+        // GIVEN the generated groups
+        let groups = query_type_groups();
+        let experimental = group_codes(&groups, "Experimental");
+        // THEN every non-digest Rpki1* variant is in Experimental
+        for v in QueryTypeVariant::VARIANTS {
+            let code = code_of(v);
+            if code.starts_with("rpki1_") && !is_digest(v) {
+                assert!(
+                    experimental.iter().any(|c| *c == code),
+                    "rpki {code} not in Experimental"
+                );
+            }
+        }
+        // AND Experimental contains nothing but RPKI codes
+        assert!(
+            experimental.iter().all(|c| c.starts_with("rpki1_")),
+            "non-rpki code leaked into Experimental"
+        );
+    }
+
+    #[test]
+    fn rir_search_group_holds_all_directional_variants() {
+        // GIVEN the generated groups
+        let groups = query_type_groups();
+        let rir = group_codes(&groups, "RIR Search");
+        // THEN every up/down/top/bottom variant is in RIR Search
+        for v in QueryTypeVariant::VARIANTS {
+            let code = code_of(v);
+            let directional = DIRECTIONS.iter().any(|(suffix, _)| code.ends_with(suffix));
+            if directional {
+                assert!(
+                    rir.iter().any(|c| *c == code),
+                    "directional {code} not in RIR Search"
+                );
+            }
+        }
+        assert_eq!(rir.len(), RIR_SEARCH.len());
+    }
+
+    #[test]
+    fn composed_direction_labels_read_naturally() {
+        // GIVEN directional codes over curated base types
+        // WHEN labeled
+        // THEN the base label carries through with the direction appended
+        assert_eq!(pick_label("ip_v4_addr_up"), "IPv4 address up");
+        assert_eq!(
+            pick_label("as_number_bottom"),
+            "Autonomous system (ASN) bottom"
+        );
+        assert_eq!(pick_label("rdns_ipv6_top"), "Reverse DNS (IPv6) top");
+        // AND a directional code over an uncurated base falls back to humanize
+        assert_eq!(pick_label("widget_up"), "Widget Up");
     }
 
     #[test]
