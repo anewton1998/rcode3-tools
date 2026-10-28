@@ -9,6 +9,7 @@ use icann_rdap_client::http::default_exts_list;
 use icann_rdap_client::prelude::*;
 use icann_rdap_client::rdap::ResponseData;
 use icann_rdap_client::rdap::redacted::simplify_redactions;
+use icann_rdap_client::rpsl::{RpslParams, ToRpsl};
 use icann_rdap_common::httpdata::HttpData;
 use icann_rdap_common::prelude::ExtensionId;
 use qtypes::{query_type_from_code, query_type_groups};
@@ -226,6 +227,50 @@ pub async fn rdap_explorer_html(
     }
 }
 
+/// Builds the downloadable RPSL text for a lookup: the main response plus
+/// every successfully-followed referral, concatenated. Each `to_rpsl`
+/// carries its own `# Query / Received / From` header, so the concatenation
+/// reads as a sequence of self-describing objects. Failed referrals are
+/// skipped (there is no body to render).
+fn build_rpsl(data: &ResponseData, referrals: &[custom::ReferralOutcome]) -> String {
+    let mut rpsl = data.rdap.to_rpsl(RpslParams {
+        http_data: &data.http_data,
+    });
+    for outcome in referrals {
+        if let Ok(referral) = &outcome.result {
+            rpsl.push_str(&referral.rdap.to_rpsl(RpslParams {
+                http_data: &referral.http_data,
+            }));
+        }
+    }
+    rpsl
+}
+
+/// Builds the downloadable JSON for a lookup.
+///
+/// A single result (no followed referrals) serializes as one RDAP object;
+/// two or more results (e.g. a domain query that followed a `related`
+/// link) serialize as a JSON array `[main, referral, …]`, matching how the
+/// result panel stacks them. Failed referrals are excluded.
+fn build_json(
+    data: &ResponseData,
+    referrals: &[custom::ReferralOutcome],
+) -> Result<String, serde_json::Error> {
+    let ok: Vec<&ResponseData> = referrals
+        .iter()
+        .filter_map(|o| o.result.as_ref().ok())
+        .collect();
+    if ok.is_empty() {
+        return serde_json::to_string_pretty(&data.rdap);
+    }
+    let mut arr = Vec::with_capacity(ok.len() + 1);
+    arr.push(&data.rdap);
+    for referral in &ok {
+        arr.push(&referral.rdap);
+    }
+    serde_json::to_string_pretty(&arr)
+}
+
 /// The payload returned by [`rdap_explorer_with_tree`].
 #[derive(serde::Serialize)]
 struct LookupResult {
@@ -234,6 +279,11 @@ struct LookupResult {
     /// A short human-readable error for the red line in the input panel and
     /// the history entry; empty for a normal (200) response.
     error: String,
+    /// Downloadable RPSL text (main response + followed referrals).
+    rpsl: String,
+    /// Downloadable JSON: a single RDAP object, or an array when the query
+    /// produced multiple results.
+    json: String,
 }
 
 /// Runs an RDAP lookup and resolves with `{ html, tree, error }`. The `html`
@@ -261,7 +311,7 @@ pub async fn rdap_explorer_with_tree(
             // response body → followed referrals (each with its own banner).
             // The body anchors match the tree's response anchors so the
             // tree's in-page links resolve to the rendered data.
-            let mut html = custom::render_response_banner(&data);
+            let mut html = custom::banner_with_formats(&data.http_data);
             html.push_str(&custom::tree_block(&tree));
             html.push_str(&custom::render_response_body(
                 &data,
@@ -282,7 +332,15 @@ pub async fn rdap_explorer_with_tree(
             } else {
                 String::new()
             };
-            LookupResult { html, tree, error }
+            let rpsl = build_rpsl(&data, &referrals);
+            let json = build_json(&data, &referrals).unwrap_or_default();
+            LookupResult {
+                html,
+                tree,
+                error,
+                rpsl,
+                json,
+            }
         }
         Err(FetchError::NoInformation(http)) => {
             let status = http.status_code;
@@ -295,6 +353,8 @@ pub async fn rdap_explorer_with_tree(
                 html,
                 tree: String::new(),
                 error: format!("No information returned (HTTP {status})"),
+                rpsl: String::new(),
+                json: String::new(),
             }
         }
         Err(FetchError::Transport(e)) => {
@@ -448,5 +508,105 @@ mod tests {
             tree.contains("entities") || tree.contains("nameservers"),
             "{tree}"
         );
+    }
+
+    fn fmt_response(json: &str, rdap_type: &str, host: &str) -> ResponseData {
+        let rdap: icann_rdap_common::prelude::RdapResponse = serde_json::from_str(json).unwrap();
+        let http_data = HttpData::builder()
+            .host(host.to_string())
+            .status_code(200)
+            .received(chrono::Utc::now())
+            .build();
+        ResponseData {
+            rdap,
+            rdap_type: rdap_type.to_string(),
+            http_data,
+        }
+    }
+
+    fn ok_outcome(json: &str, rdap_type: &str, host: &str) -> custom::ReferralOutcome {
+        custom::ReferralOutcome {
+            url: format!("https://{host}/rdap/domain/x"),
+            result: Ok(fmt_response(json, rdap_type, host)),
+        }
+    }
+
+    #[test]
+    fn build_json_single_result_is_an_object() {
+        // GIVEN a lookup with no followed referrals
+        let data = fmt_response(
+            r#"{"objectClassName":"domain","ldhName":"example.com"}"#,
+            "domain",
+            "rdap.example",
+        );
+        // WHEN the download JSON is built
+        let json = build_json(&data, &[]).expect("json");
+        // THEN it is a single RDAP object, not an array.
+        let v: serde_json::Value = serde_json::from_str(&json).expect("valid json");
+        assert!(v.is_object(), "{json}");
+        assert_eq!(v["ldhName"], "example.com");
+    }
+
+    #[test]
+    fn build_json_with_referral_is_an_array() {
+        // GIVEN a main response plus one successfully-followed referral
+        let data = fmt_response(
+            r#"{"objectClassName":"domain","ldhName":"example.com"}"#,
+            "domain",
+            "rdap.example",
+        );
+        let referrals = vec![ok_outcome(
+            r#"{"objectClassName":"domain","ldhName":"related.example"}"#,
+            "domain",
+            "other.example",
+        )];
+        // WHEN the download JSON is built
+        let json = build_json(&data, &referrals).expect("json");
+        // THEN it is an array of [main, referral] in order.
+        let v: serde_json::Value = serde_json::from_str(&json).expect("valid json");
+        let arr = v.as_array().expect("expected a JSON array");
+        assert_eq!(arr.len(), 2, "{json}");
+        assert_eq!(arr[0]["ldhName"], "example.com");
+        assert_eq!(arr[1]["ldhName"], "related.example");
+    }
+
+    #[test]
+    fn build_json_skips_failed_referrals() {
+        // GIVEN a referral that failed to load
+        let data = fmt_response(
+            r#"{"objectClassName":"domain","ldhName":"example.com"}"#,
+            "domain",
+            "rdap.example",
+        );
+        let referrals = vec![custom::ReferralOutcome {
+            url: "https://broken.example/x".to_string(),
+            result: Err(RdapClientError::InvalidQueryValue),
+        }];
+        // WHEN the download JSON is built
+        let json = build_json(&data, &referrals).expect("json");
+        // THEN the failed referral is excluded: still a single object.
+        let v: serde_json::Value = serde_json::from_str(&json).expect("valid json");
+        assert!(v.is_object(), "{json}");
+    }
+
+    #[test]
+    fn build_rpsl_concatenates_main_and_referrals() {
+        // GIVEN a main domain and one followed referral domain
+        let data = fmt_response(
+            r#"{"objectClassName":"domain","ldhName":"example.com"}"#,
+            "domain",
+            "rdap.example",
+        );
+        let referrals = vec![ok_outcome(
+            r#"{"objectClassName":"domain","ldhName":"related.example"}"#,
+            "domain",
+            "other.example",
+        )];
+        // WHEN the RPSL text is built
+        let rpsl = build_rpsl(&data, &referrals);
+        // THEN both objects appear, each with its own `domain:` key.
+        assert!(rpsl.contains("example.com"), "{rpsl}");
+        assert!(rpsl.contains("related.example"), "{rpsl}");
+        assert_eq!(rpsl.matches("domain:").count(), 2, "{rpsl}");
     }
 }

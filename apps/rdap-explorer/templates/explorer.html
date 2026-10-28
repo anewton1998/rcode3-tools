@@ -54,6 +54,8 @@
             result: '',
             error: '',
             busy: false,
+            rpslText: '', // downloadable RPSL for the current result
+            jsonText: '',  // downloadable JSON for the current result
             history: [],    // newest first
             activeId: null, // entry currently shown in Results
 
@@ -113,6 +115,8 @@
                     const r = await window.RdapClient.rdapExplorerWithTree(q, t);
                     this.result = r.html;
                     this.error = r.error || '';
+                    this.rpslText = r.rpsl || '';
+                    this.jsonText = r.json || '';
                     if (r.error) {
                         entry.status = 'error';
                         entry.error = r.error.slice(0, ERROR_MAX);
@@ -123,6 +127,8 @@
                     entry.error = String(e).slice(0, ERROR_MAX);
                     this.error = String(e);
                     this.result = '';
+                    this.rpslText = '';
+                    this.jsonText = '';
                 }
                 this.record(entry);
                 this.busy = false;
@@ -155,6 +161,41 @@
                 this.query = q;
                 this.queryType = 'auto';
                 await this.lookup();
+            },
+
+            // Download handler for the "Other Formats" links the WASM banner
+            // renders inside the x-html result. Alpine does not process
+            // directives in x-html content, so the click is caught here by
+            // delegation and the payload is read from rpslText/jsonText.
+            onFormatClick(e) {
+                const link = e.target.closest('a[data-download-format]');
+                if (!link) return;
+                e.preventDefault();
+                const fmt = link.getAttribute('data-download-format');
+                const text = fmt === 'rpsl' ? this.rpslText
+                    : fmt === 'json' ? this.jsonText : '';
+                if (!text) return;
+                const type = fmt === 'json' ? 'application/json' : 'text/plain';
+                const url = URL.createObjectURL(new Blob([text], { type: type }));
+                const a = document.createElement('a');
+                a.href = url;
+                a.download = this.downloadName(fmt);
+                document.body.appendChild(a);
+                a.click();
+                document.body.removeChild(a);
+                URL.revokeObjectURL(url);
+            },
+
+            // File name derived from the current query so downloads from
+            // different lookups stay distinguishable. Unsafe characters are
+            // collapsed to underscores and the name is length-capped.
+            downloadName(fmt) {
+                const base = (this.query || '')
+                    .trim()
+                    .replace(/[^a-zA-Z0-9._-]+/g, '_')
+                    .replace(/^_+|_+$/g, '')
+                    .slice(0, 100);
+                return (base || 'rdap') + '.' + fmt;
             },
 
             // Absolute link that reopens this page with the entry's query
@@ -257,7 +298,7 @@
         <div class="dash_row dash_row_bottom">
             <section class="panel panel_results">
                 <h2 class="panel_title">Results</h2>
-                <div x-html="result"></div>
+                <div x-html="result" @click="onFormatClick($event)"></div>
             </section>
 
             <aside class="panel panel_summary">

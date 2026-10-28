@@ -134,6 +134,24 @@
 	color: var(--theme-accent-color);
 }
 
+/* "Other Formats" download links (RPSL / JSON) in the result banner.
+   In-page actions, so no underline (unlike the example links); the
+   download itself is wired in the explorer template via event delegation
+   on the result container. */
+.format_link {
+	color: var(--theme-action-color);
+	cursor: pointer;
+	text-decoration: none;
+}
+
+.format_link:hover {
+	color: var(--theme-accent-color);
+}
+
+.format_sep {
+	color: var(--theme-disabled-color);
+}
+
 .progress_wrap {
 	display: block;
 	margin-top: .75em;

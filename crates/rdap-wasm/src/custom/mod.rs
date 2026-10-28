@@ -41,6 +41,26 @@ pub fn render_response_banner(data: &ResponseData) -> String {
     banner_from_http(&data.http_data)
 }
 
+/// Renders the host/received banner with an extra "Other Formats" row of
+/// download links beneath the received date.
+///
+/// The links are inert markup (`href="#"`) tagged with a
+/// `data-download-format` marker. The actual download is wired in the
+/// explorer template via event delegation, because the rpsl/json payloads
+/// live in the page's Alpine state rather than in this rendered fragment
+/// (Alpine does not process directives inside `x-html` content). Only the
+/// *main* response banner uses this; followed referrals keep the plain
+/// [`render_response_banner`] so the download row appears once.
+pub(crate) fn banner_with_formats(http: &HttpData) -> String {
+    let host = http.host();
+    let time_str = http.received().to_rfc3339();
+    format!(
+        "<table class=\"data_table\"><tbody><tr><td class=\"data_key\">Host</td><td class=\"mono_text\">{}</td></tr><tr><td class=\"data_key\">Received</td><td class=\"mono_text\">{}</td></tr><tr><td class=\"data_key\">Other Formats</td><td class=\"format_links\"><a href=\"#\" class=\"format_link\" data-download-format=\"rpsl\" title=\"Download RPSL\">RPSL <span class=\"format_arrow\">\u{21E3}</span></a><span class=\"format_sep\"> &middot; </span><a href=\"#\" class=\"format_link\" data-download-format=\"json\" title=\"Download JSON\">JSON <span class=\"format_arrow\">\u{21E3}</span></a></td></tr></tbody></table>",
+        html::escape(host),
+        html::escape(&time_str)
+    )
+}
+
 /// Renders the results-panel HTML for any supported RDAP response.
 ///
 /// `anchor` is the in-page anchor id for this response's body (see
@@ -212,5 +232,27 @@ mod tests {
             !body.contains("ErrorResponse"),
             "should not fall back to the rdap_type text: {body}"
         );
+    }
+
+    #[test]
+    fn banner_with_formats_adds_download_row() {
+        // GIVEN raw http data for a received response
+        let http = HttpData::builder()
+            .host("rdap.example".to_string())
+            .status_code(200)
+            .received(chrono::Utc::now())
+            .build();
+        // WHEN the formats banner is rendered
+        let html = banner_with_formats(&http);
+        // THEN it keeps the Host/Received rows and adds an "Other Formats"
+        // row carrying both download markers, uppercase labels, and the
+        // ⤓ download symbol placed after each label.
+        assert!(html.contains(">Host<"), "{html}");
+        assert!(html.contains(">Received<"), "{html}");
+        assert!(html.contains("Other Formats"), "{html}");
+        assert!(html.contains("data-download-format=\"rpsl\""), "{html}");
+        assert!(html.contains("data-download-format=\"json\""), "{html}");
+        assert!(html.contains("RPSL <span class=\"format_arrow\">\u{21E3}</span>"), "{html}");
+        assert!(html.contains("JSON <span class=\"format_arrow\">\u{21E3}</span>"), "{html}");
     }
 }
