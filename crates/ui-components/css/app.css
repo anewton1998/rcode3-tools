@@ -401,44 +401,49 @@
 	color: var(--theme-primary-color);
 }
 
-/* Links table (Relation / Type / URL). Long RDAP URLs are unbroken mono
-   strings, so let them wrap and cap the table to the panel width at all
-   sizes to avoid horizontal overflow. */
-.links_table {
+/* Tables that stack into labeled key/value blocks on narrow screens:
+   the links table (Relation / Type / URL) and the events table
+   (Action / Local / Date [/ Actor]). Long RDAP URLs and RFC 3339 dates
+   are unbroken strings, so let them wrap and cap the table to the panel
+   width at all sizes to avoid horizontal overflow. */
+.stack_table {
 	max-width: 100%;
 }
 
-.links_table td {
+.stack_table td {
 	overflow-wrap: anywhere;
 }
 
-/* Narrow screens: stack each link row into labeled key/value blocks
-   (hiding the header), matching the .data_key " : " presentation. */
+/* Narrow screens: stack each row into labeled key/value blocks (hiding
+   the header), matching the .data_key " : " presentation. The label uses
+   `color: inherit` so an expiring-event row keeps its warning color on
+   the label; for the links table this resolves to the same primary it
+   already shows. */
 @media (max-width: 700px) {
-	.links_table,
-	.links_table tbody,
-	.links_table tr {
+	.stack_table,
+	.stack_table tbody,
+	.stack_table tr {
 		display: block;
 		width: 100%;
 	}
 
-	.links_table thead {
+	.stack_table thead {
 		display: none;
 	}
 
-	.links_table tr {
+	.stack_table tr {
 		margin-bottom: .6em;
 	}
 
-	.links_table td {
+	.stack_table td {
 		display: block;
 		border-bottom: none;
 		padding: .05em 0;
 	}
 
-	.links_table td::before {
+	.stack_table td::before {
 		content: attr(data-label) " : ";
-		color: var(--theme-primary-color);
+		color: inherit;
 		font-weight: var(--theme-primary-font-weight);
 	}
 }

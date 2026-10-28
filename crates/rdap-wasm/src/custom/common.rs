@@ -208,20 +208,20 @@ fn events_table(events: &Events) -> String {
     }
     if has_actor {
         format!(
-            "<table class=\"data_table\"><thead><tr><th>Action</th><th>Local</th><th>Date</th><th>Actor</th></tr></thead><tbody>{}</tbody></table>",
+            "<table class=\"data_table stack_table\"><thead><tr><th>Action</th><th>Local</th><th>Date</th><th>Actor</th></tr></thead><tbody>{}</tbody></table>",
             rows.iter().map(|(a, d, ac, l, exp)| {
                 let row_class = if *exp { " class=\"warning_text\"" } else { "" };
-                format!("<tr{}><td>{}</td><td>{}</td><td class=\"mono_text\">{}</td><td>{}</td></tr>", row_class, a, l, d, ac)
+                format!("<tr{}><td data-label=\"Action\">{}</td><td data-label=\"Local\">{}</td><td data-label=\"Date\" class=\"mono_text\">{}</td><td data-label=\"Actor\">{}</td></tr>", row_class, a, l, d, ac)
             }).collect::<Vec<_>>().join("")
         )
     } else {
         format!(
-            "<table class=\"data_table\"><thead><tr><th>Action</th><th>Local</th><th>Date</th></tr></thead><tbody>{}</tbody></table>",
+            "<table class=\"data_table stack_table\"><thead><tr><th>Action</th><th>Local</th><th>Date</th></tr></thead><tbody>{}</tbody></table>",
             rows.iter()
                 .map(|(a, d, _, l, exp)| {
                     let row_class = if *exp { " class=\"warning_text\"" } else { "" };
                     format!(
-                        "<tr{}><td>{}</td><td>{}</td><td class=\"mono_text\">{}</td></tr>",
+                        "<tr{}><td data-label=\"Action\">{}</td><td data-label=\"Local\">{}</td><td data-label=\"Date\" class=\"mono_text\">{}</td></tr>",
                         row_class, a, l, d
                     )
                 })
@@ -320,7 +320,7 @@ fn links_table(links: &Links) -> String {
         return String::new();
     }
     format!(
-        "<table class=\"data_table links_table\"><thead><tr><th>Relation</th><th>Type</th><th>URL</th></tr></thead><tbody>{}</tbody></table>",
+        "<table class=\"data_table stack_table\"><thead><tr><th>Relation</th><th>Type</th><th>URL</th></tr></thead><tbody>{}</tbody></table>",
         rows.join("")
     )
 }
@@ -1085,10 +1085,54 @@ mod tests {
         let html = domain_html(&domain, "rdap.example", "");
 
         // THEN the table carries the responsive class and each cell a data-label
-        assert!(html.contains("class=\"data_table links_table\""), "{html}");
+        assert!(html.contains("class=\"data_table stack_table\""), "{html}");
         assert!(html.contains("data-label=\"Relation\""), "{html}");
         assert!(html.contains("data-label=\"Type\""), "{html}");
         assert!(html.contains("data-label=\"URL\""), "{html}");
+    }
+
+    #[test]
+    fn events_table_has_stack_class_and_data_labels() {
+        // GIVEN a domain with an event that carries an actor
+        let json = r#"{
+            "objectClassName": "domain",
+            "ldhName": "example.com",
+            "events": [
+                {"eventAction": "registration", "eventDate": "2000-01-01T00:00:00Z", "eventActor": "Example Corp"}
+            ]
+        }"#;
+        let domain: Domain = serde_json::from_str(json).unwrap();
+
+        // WHEN rendered
+        let html = domain_html(&domain, "rdap.example", "");
+
+        // THEN the events table carries the shared stack class and each cell a label
+        assert!(html.contains("class=\"data_table stack_table\""), "{html}");
+        assert!(html.contains("data-label=\"Action\""), "{html}");
+        assert!(html.contains("data-label=\"Local\""), "{html}");
+        assert!(html.contains("data-label=\"Date\""), "{html}");
+        assert!(html.contains("data-label=\"Actor\""), "{html}");
+    }
+
+    #[test]
+    fn events_table_without_actor_has_no_actor_label() {
+        // GIVEN a domain with an event that has no actor
+        let json = r#"{
+            "objectClassName": "domain",
+            "ldhName": "example.com",
+            "events": [
+                {"eventAction": "registration", "eventDate": "2000-01-01T00:00:00Z"}
+            ]
+        }"#;
+        let domain: Domain = serde_json::from_str(json).unwrap();
+
+        // WHEN rendered
+        let html = domain_html(&domain, "rdap.example", "");
+
+        // THEN it still stacks but carries no Actor label
+        assert!(html.contains("class=\"data_table stack_table\""), "{html}");
+        assert!(html.contains("data-label=\"Action\""), "{html}");
+        assert!(!html.contains("data-label=\"Actor\""), "{html}");
     }
 
     #[test]
