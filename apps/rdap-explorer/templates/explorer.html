@@ -23,6 +23,21 @@
         const HISTORY_MAX = 50;
         const QUERY_MAX = 253; // RFC 1035 max domain name length
         const ERROR_MAX = 500;
+        const BASE_URL_KEY = 'rdap-base-url';
+        const BASE_URL_VERSION = 1;
+
+        // A custom base URL must parse as an absolute http(s) URL.
+        function isValidHttpUrl(s) {
+            if (typeof s !== 'string') return false;
+            const t = s.trim();
+            if (!t) return false;
+            try {
+                const u = new URL(t);
+                return u.protocol === 'http:' || u.protocol === 'https:';
+            } catch (_) {
+                return false;
+            }
+        }
 
         // Tolerant read: keep well-formed entries, drop anything else.
         // The whitelisted `status` guarantees class bindings only ever see
@@ -51,6 +66,12 @@
             query: '',
             queryType: 'auto',
             queryTypeGroups: [],
+            // Base URL: a bootstrap server, or 'custom' which reveals the
+            // text box. Seeded from the server-rendered meta tag (the
+            // configured default) so the select matches before restore.
+            baseUrlChoice: (document.querySelector('meta[name="rdap-bootstrap-url"]') || {}).content || '',
+            baseUrlCustom: '',
+            baseUrlError: '',
             result: '',
             error: '',
             busy: false,
@@ -59,30 +80,79 @@
             history: [],    // newest first
             activeId: null, // entry currently shown in Results
 
+            // The Explicit URL query type ignores any base URL, so the
+            // base-URL controls are disabled while it is selected.
+            get isUrlType() {
+                return this.queryType === 'url';
+            },
+
+            // Targeted and Experimental queries can't be served by the generic
+            // bootstrap redirector, so they require a custom base URL. Derived
+            // from the loaded query-type groups by their display labels.
+            get requiresCustomBase() {
+                const t = this.queryType;
+                if (!t) return false;
+                const groups = this.queryTypeGroups || [];
+                for (const g of groups) {
+                    if (g.label === 'Targeted Query' || g.label === 'Experimental') {
+                        const opts = g.options || [];
+                        for (const o of opts) {
+                            if (o.code === t) return true;
+                        }
+                    }
+                }
+                return false;
+            },
+
+            // The dropdown is locked when the base is irrelevant (Explicit URL)
+            // or when it is forced to Custom (Targeted / Experimental).
+            get baseSelectDisabled() {
+                return this.isUrlType || this.requiresCustomBase;
+            },
+
+            // Force the Custom choice (revealing the text box) for query types
+            // that require a custom base. No-op otherwise.
+            enforceCustomBaseIfNeeded() {
+                if (this.requiresCustomBase && this.baseUrlChoice !== 'custom') {
+                    this.baseUrlChoice = 'custom';
+                }
+            },
+
             async init() {
                 this.restore();
+                this.restoreBaseUrl();
+
+                // Persist the base-URL selection whenever it changes.
+                this.$watch('baseUrlChoice', () => this.persistBaseUrl());
+                this.$watch('baseUrlCustom', () => this.persistBaseUrl());
+                // Selecting a Targeted / Experimental type forces Custom.
+                this.$watch('queryType', () => this.enforceCustomBaseIfNeeded());
 
                 // Pick up a query handed off from the home page's Explore form
                 // (e.g. /rdap-explorer?query=example.com) and run it once the
-                // WASM client is ready.
+                // WASM client is ready. A ?base= / ?basecustom= pair lets a
+                // shared link reproduce the same base-URL selection.
                 const params = new URLSearchParams(window.location.search);
                 const incoming = (params.get('query') || '').trim();
+                this.applyBaseParams(params);
 
-                const load = async () => {
-                    try { this.queryTypeGroups = await window.RdapClient.queryTypeGroups(); }
-                    catch (e) { console.error('failed to load query types', e); }
-                };
-                if (window.RdapClient) { await load(); }
-                else { window.addEventListener('rdap-ready', load); }
+                // Ensure the WASM client and the query-type groups are ready
+                // before touching queryType, so requiresCustomBase is accurate.
+                if (!window.RdapClient) {
+                    await new Promise((resolve) =>
+                        window.addEventListener('rdap-ready', resolve, { once: true }));
+                }
+                try { this.queryTypeGroups = await window.RdapClient.queryTypeGroups(); }
+                catch (e) { console.error('failed to load query types', e); }
 
                 if (incoming) {
                     this.query = incoming.slice(0, QUERY_MAX);
                     this.queryType = params.get('type') || 'auto';
-                    if (!window.RdapClient) {
-                        await new Promise((resolve) =>
-                            window.addEventListener('rdap-ready', resolve, { once: true }));
-                    }
+                    this.enforceCustomBaseIfNeeded();
                     await this.lookup();
+                } else {
+                    // Keep the WASM client's bootstrap in sync with the chosen base.
+                    this.applyBaseToClient();
                 }
             },
 
@@ -90,13 +160,34 @@
                 if (this.busy) return;
                 const q = this.query.trim();
                 if (!q) return;
+                const t = this.queryType;
+                // Resolve + validate the base URL for every type except the
+                // Explicit URL, which carries its own full URL and ignores
+                // the base. An invalid custom base aborts before going busy.
+                if (t !== 'url') {
+                    if (this.requiresCustomBase && this.baseUrlChoice !== 'custom') {
+                        this.baseUrlError = 'This query type requires a custom base URL';
+                        return;
+                    }
+                    const base = this.resolvedBaseUrl();
+                    if (this.baseUrlChoice === 'custom' && !isValidHttpUrl(base)) {
+                        this.baseUrlError = 'Enter a valid http(s) base URL';
+                        return;
+                    }
+                    this.baseUrlError = '';
+                    try {
+                        window.RdapClient.set_bootstrap_url(base);
+                    } catch (e) {
+                        this.baseUrlError = 'Could not set the base URL';
+                        return;
+                    }
+                }
                 // Bring the top of the page into view as the query runs, so the
                 // result panel is in view regardless of where the query was
                 // triggered from (input box or a history Re-query link).
                 window.scrollTo({ top: 0, behavior: 'smooth' });
                 this.busy = true;
                 this.error = '';
-                const t = this.queryType;
                 const entry = {
                     id: Date.now() * 1000 + (seq++ % 1000),
                     query: q.slice(0, QUERY_MAX),
@@ -131,6 +222,7 @@
                     this.jsonText = '';
                 }
                 this.record(entry);
+                this.persistBaseUrl();
                 this.busy = false;
             },
 
@@ -145,6 +237,74 @@
                 if (this.history.length > HISTORY_MAX) this.history.length = HISTORY_MAX;
                 this.activeId = entry.id;
                 this.persist();
+            },
+
+            // The base URL actually used for a lookup: the custom text when
+            // 'custom' is chosen, otherwise the selected bootstrap server.
+            resolvedBaseUrl() {
+                return this.baseUrlChoice === 'custom'
+                    ? this.baseUrlCustom.trim()
+                    : this.baseUrlChoice;
+            },
+
+            // The selectable base values, read from the rendered <select> so
+            // restore/share validation tracks the server-rendered list.
+            validBaseOptions() {
+                const sel = this.$el.querySelector('select[name="base_url"]');
+                if (!sel) return [];
+                return Array.from(sel.options).map(function (o) { return o.value; });
+            },
+
+            // Push the resolved base URL into the WASM client (no-op for the
+            // Explicit URL type, which ignores the base).
+            applyBaseToClient() {
+                if (this.isUrlType) return;
+                const base = this.resolvedBaseUrl();
+                if (!base) return;
+                if (this.baseUrlChoice === 'custom' && !isValidHttpUrl(base)) return;
+                try { window.RdapClient.set_bootstrap_url(base); }
+                catch (e) { console.error('failed to set bootstrap url', e); }
+            },
+
+            // Apply a ?base= / ?basecustom= pair from a shared link, overriding
+            // the restored selection. Invalid pairs are ignored (keep restore).
+            applyBaseParams(params) {
+                const base = params.get('base');
+                const baseCustom = params.get('basecustom');
+                if (base === 'custom') {
+                    if (isValidHttpUrl(baseCustom)) {
+                        this.baseUrlChoice = 'custom';
+                        this.baseUrlCustom = baseCustom.trim();
+                    }
+                } else if (base && this.validBaseOptions().includes(base)) {
+                    this.baseUrlChoice = base;
+                }
+            },
+
+            persistBaseUrl() {
+                const payload = { v: BASE_URL_VERSION, choice: this.baseUrlChoice, custom: this.baseUrlCustom };
+                try {
+                    localStorage.setItem(BASE_URL_KEY, JSON.stringify(payload));
+                } catch (_) { /* storage unavailable: session-only */ }
+            },
+
+            restoreBaseUrl() {
+                let raw = null;
+                try { raw = localStorage.getItem(BASE_URL_KEY); } catch (_) { return; }
+                if (!raw) return;
+                let parsed = null;
+                try { parsed = JSON.parse(raw); } catch (_) { parsed = null; }
+                if (!parsed || typeof parsed !== 'object' || parsed.v !== BASE_URL_VERSION) return;
+                const choice = parsed.choice;
+                const custom = typeof parsed.custom === 'string' ? parsed.custom : '';
+                if (choice === 'custom') {
+                    if (isValidHttpUrl(custom)) {
+                        this.baseUrlChoice = 'custom';
+                        this.baseUrlCustom = custom;
+                    }
+                } else if (this.validBaseOptions().includes(choice)) {
+                    this.baseUrlChoice = choice;
+                }
             },
 
             async requery(entry) {
@@ -205,6 +365,12 @@
                 const u = new URL(window.location.href);
                 u.searchParams.set('query', entry.query);
                 u.searchParams.set('type', entry.queryType);
+                if (this.baseUrlChoice === 'custom') {
+                    u.searchParams.set('base', 'custom');
+                    u.searchParams.set('basecustom', this.baseUrlCustom.trim());
+                } else if (this.baseUrlChoice) {
+                    u.searchParams.set('base', this.baseUrlChoice);
+                }
                 return u.toString();
             },
 
@@ -280,7 +446,17 @@
                     <label class="query_type_label" for="query_type">Query type</label>
                     {{ query_type_select_html|safe }}
                 </div>
+                <div class="base_url_row">
+                    <label class="base_url_label" for="base_url">Base URL</label>
+                    <div class="base_url_controls">
+                        {{ base_url_select_html|safe }}
+                        <span class="base_url_custom" x-show="baseUrlChoice === 'custom'">{{ base_url_input_html|safe }}</span>
+                    </div>
+                </div>
+                <span class="base_url_note" x-show="isUrlType">Explicit URL ignores the base URL.</span>
+                <span class="base_url_note" x-show="requiresCustomBase">Targeted and Experimental queries require a custom base URL.</span>
                 <span x-show="busy">{{ progress_bar_html|safe }}</span>
+                <span class="error_text error_line" x-show="baseUrlError" x-text="baseUrlError"></span>
                 <span class="error_text error_line" x-show="error" x-text="error"></span>
             </section>
 

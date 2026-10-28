@@ -8,6 +8,10 @@ pub struct TextInput<'a> {
     pub placeholder: Option<&'a str>,
     pub enter_activates: Option<&'a str>,
     pub x_model: Option<&'a str>,
+    /// A JS expression bound to `x-bind:disabled` (e.g. `"isUrlType"`).
+    /// Must be a plain identifier/getter: askama HTML-escapes `& < > " '`,
+    /// so operators and quotes in the expression would break it.
+    pub x_bind_disabled: Option<&'a str>,
 }
 
 impl<'a> TextInput<'a> {
@@ -18,6 +22,7 @@ impl<'a> TextInput<'a> {
             placeholder: None,
             enter_activates: None,
             x_model: None,
+            x_bind_disabled: None,
         }
     }
 
@@ -38,6 +43,12 @@ impl<'a> TextInput<'a> {
 
     pub fn x_model(mut self, expr: &'a str) -> Self {
         self.x_model = Some(expr);
+        self
+    }
+
+    /// Binds a JS expression to `x-bind:disabled` on the `<input>`.
+    pub fn x_bind_disabled(mut self, expr: &'a str) -> Self {
+        self.x_bind_disabled = Some(expr);
         self
     }
 }
@@ -62,5 +73,20 @@ mod tests {
         let html = TextInput::new("q").render().unwrap();
         assert!(!html.contains("data-enter-activates"));
         assert!(!html.contains("onkeydown"));
+    }
+
+    #[test]
+    fn x_bind_disabled_renders_attribute() {
+        let html = TextInput::new("base_url_custom")
+            .x_bind_disabled("isUrlType")
+            .render()
+            .unwrap();
+        assert!(html.contains("x-bind:disabled=\"isUrlType\""));
+    }
+
+    #[test]
+    fn omits_x_bind_disabled_when_unset() {
+        let html = TextInput::new("q").render().unwrap();
+        assert!(!html.contains("x-bind:disabled"));
     }
 }

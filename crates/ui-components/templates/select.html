@@ -1,5 +1,6 @@
 <select class="rcode3_select" name="{{ name }}"
-        {% if let Some(x_model) = x_model %}x-model="{{ x_model }}" {% endif %}>
+        {% if let Some(x_model) = x_model %}x-model="{{ x_model }}" {% endif %}
+        {% if let Some(x_bind_disabled) = x_bind_disabled %}x-bind:disabled="{{ x_bind_disabled }}" {% endif %}>
 {% if let Some(groups_expr) = groups_expr %}
   <template x-for="g in {{ groups_expr }}" :key="g.label">
     <optgroup :label="g.label">

@@ -105,6 +105,54 @@
 	min-width: 0;
 }
 
+/* base-URL row: a bootstrap-server dropdown, plus a custom text box that
+   appears only when "Custom" is selected. Disabled (with a note) for the
+   Explicit URL query type, which ignores the base URL. */
+.base_url_row {
+	display: flex;
+	flex-direction: row;
+	align-items: center;
+	gap: .5em;
+	margin-top: .6em;
+}
+
+.base_url_label {
+	font-weight: var(--theme-primary-font-weight);
+	white-space: nowrap;
+}
+
+.base_url_controls {
+	display: flex;
+	flex-direction: row;
+	align-items: center;
+	gap: .5em;
+	flex: 1 1 auto;
+	min-width: 0;
+}
+
+.base_url_controls .rcode3_select {
+	flex: 1 1 auto;
+	min-width: 0;
+}
+
+.base_url_custom {
+	flex: 1 1 auto;
+	min-width: 0;
+	display: flex;
+}
+
+.base_url_custom .rcode3_input_text {
+	flex: 1 1 auto;
+	min-width: 0;
+}
+
+.base_url_note {
+	display: block;
+	margin-top: .35em;
+	font-size: .85em;
+	color: var(--theme-secondary-color, var(--theme-primary-color));
+}
+
 /* bottom row: results 3/4 (left), summary 1/4 (right) — 3:1 grow ratio */
 .panel_summary {
 	flex: 1 1 0;

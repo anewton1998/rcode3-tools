@@ -21,6 +21,10 @@ pub struct Select<'a> {
     pub selected: Option<&'a str>,
     pub x_model: Option<&'a str>,
     pub groups_expr: Option<&'a str>,
+    /// A JS expression bound to `x-bind:disabled` (e.g. `"isUrlType"`).
+    /// Must be a plain identifier/getter: askama HTML-escapes `& < > " '`,
+    /// so operators and quotes in the expression would break it.
+    pub x_bind_disabled: Option<&'a str>,
 }
 
 impl<'a> Select<'a> {
@@ -31,6 +35,7 @@ impl<'a> Select<'a> {
             selected: None,
             x_model: None,
             groups_expr: None,
+            x_bind_disabled: None,
         }
     }
 
@@ -53,6 +58,12 @@ impl<'a> Select<'a> {
     /// yields `[{ label, options: [{ code, label }] }]`.
     pub fn groups_expr(mut self, expr: &'a str) -> Self {
         self.groups_expr = Some(expr);
+        self
+    }
+
+    /// Binds a JS expression to `x-bind:disabled` on the `<select>`.
+    pub fn x_bind_disabled(mut self, expr: &'a str) -> Self {
+        self.x_bind_disabled = Some(expr);
         self
     }
 }
@@ -81,6 +92,21 @@ mod tests {
     fn x_model_renders_attribute() {
         let html = Select::new("q").x_model("queryType").render().unwrap();
         assert!(html.contains("x-model=\"queryType\""));
+    }
+
+    #[test]
+    fn x_bind_disabled_renders_attribute() {
+        let html = Select::new("base_url")
+            .x_bind_disabled("isUrlType")
+            .render()
+            .unwrap();
+        assert!(html.contains("x-bind:disabled=\"isUrlType\""));
+    }
+
+    #[test]
+    fn omits_x_bind_disabled_when_unset() {
+        let html = Select::new("q").render().unwrap();
+        assert!(!html.contains("x-bind:disabled"));
     }
 
     #[test]
