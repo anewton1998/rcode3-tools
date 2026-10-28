@@ -19,12 +19,15 @@
     //   last writer wins. Accepted for a single-user lookup tool.
     window.rdapExplorer = function () {
         const HISTORY_KEY = 'rdap-history';
-        const HISTORY_VERSION = 1;
+        // v2: entries now record the base URL used, so Re-query can reproduce
+        // it. Older (v1) entries lack this and are discarded on load.
+        const HISTORY_VERSION = 2;
         const HISTORY_MAX = 50;
         const QUERY_MAX = 253; // RFC 1035 max domain name length
         const ERROR_MAX = 500;
         const BASE_URL_KEY = 'rdap-base-url';
         const BASE_URL_VERSION = 1;
+        const BASE_URL_MAX = 512;
 
         // A custom base URL must parse as an absolute http(s) URL.
         function isValidHttpUrl(s) {
@@ -55,6 +58,10 @@
                 status: raw.status,
                 error: typeof raw.error === 'string' ? raw.error.slice(0, ERROR_MAX) : '',
                 time: typeof raw.time === 'string' ? raw.time : '',
+                // Base URL used for this query, so Re-query can reproduce it.
+                // Absent on older entries → '' (Re-query keeps the current base).
+                base: typeof raw.base === 'string' ? raw.base.slice(0, BASE_URL_MAX) : '',
+                baseCustom: typeof raw.baseCustom === 'string' ? raw.baseCustom.slice(0, BASE_URL_MAX) : '',
             };
         }
 
@@ -192,6 +199,9 @@
                     id: Date.now() * 1000 + (seq++ % 1000),
                     query: q.slice(0, QUERY_MAX),
                     queryType: t,
+                    // Record the base used so Re-query reproduces it.
+                    base: this.baseUrlChoice,
+                    baseCustom: this.baseUrlChoice === 'custom' ? this.baseUrlCustom.trim() : '',
                     status: 'ok',
                     error: '',
                     time: new Date().toLocaleString(),
@@ -266,19 +276,29 @@
                 catch (e) { console.error('failed to set bootstrap url', e); }
             },
 
+            // Apply a base-URL selection (a listed server value, or 'custom'
+            // with a valid URL). Returns true if a valid selection was applied,
+            // false if it was ignored (caller keeps its current selection).
+            applyBaseSelection(choice, custom) {
+                if (choice === 'custom') {
+                    if (isValidHttpUrl(custom)) {
+                        this.baseUrlChoice = 'custom';
+                        this.baseUrlCustom = custom.trim();
+                        return true;
+                    }
+                    return false;
+                }
+                if (choice && this.validBaseOptions().includes(choice)) {
+                    this.baseUrlChoice = choice;
+                    return true;
+                }
+                return false;
+            },
+
             // Apply a ?base= / ?basecustom= pair from a shared link, overriding
             // the restored selection. Invalid pairs are ignored (keep restore).
             applyBaseParams(params) {
-                const base = params.get('base');
-                const baseCustom = params.get('basecustom');
-                if (base === 'custom') {
-                    if (isValidHttpUrl(baseCustom)) {
-                        this.baseUrlChoice = 'custom';
-                        this.baseUrlCustom = baseCustom.trim();
-                    }
-                } else if (base && this.validBaseOptions().includes(base)) {
-                    this.baseUrlChoice = base;
-                }
+                this.applyBaseSelection(params.get('base'), params.get('basecustom'));
             },
 
             persistBaseUrl() {
@@ -310,6 +330,13 @@
             async requery(entry) {
                 if (this.busy) return;
                 this.query = entry.query;
+                // Restore the base URL this query was originally run with (when
+                // recorded and still valid); otherwise keep the current base.
+                // Applied before queryType so the custom-base enforcement for
+                // Targeted / Experimental types can't clobber a consistent entry.
+                if (entry.base) {
+                    this.applyBaseSelection(entry.base, entry.baseCustom);
+                }
                 this.queryType = entry.queryType;
                 await this.lookup();
             },
@@ -358,18 +385,21 @@
                 return (base || 'rdap') + '.' + fmt;
             },
 
-            // Absolute link that reopens this page with the entry's query
-            // pre-filled (the init() handoff reads ?query=&type=). Built from
-            // the current location so any mount base is preserved.
+            // Absolute link that reopens this page with the entry's query and
+            // the base URL it was run with pre-filled (the init() handoff reads
+            // ?query=&type=&base=&basecustom=). Built from the current location
+            // so any mount base is preserved.
             shareUrl(entry) {
                 const u = new URL(window.location.href);
                 u.searchParams.set('query', entry.query);
                 u.searchParams.set('type', entry.queryType);
-                if (this.baseUrlChoice === 'custom') {
+                const choice = entry.base || this.baseUrlChoice;
+                const custom = entry.baseCustom || this.baseUrlCustom;
+                if (choice === 'custom') {
                     u.searchParams.set('base', 'custom');
-                    u.searchParams.set('basecustom', this.baseUrlCustom.trim());
-                } else if (this.baseUrlChoice) {
-                    u.searchParams.set('base', this.baseUrlChoice);
+                    u.searchParams.set('basecustom', (custom || '').trim());
+                } else if (choice) {
+                    u.searchParams.set('base', choice);
                 }
                 return u.toString();
             },
@@ -495,7 +525,11 @@
                             <div class="history_row">
                                 <span class="history_query" x-text="entry.query"></span>
                                 <span class="history_actions">
-                                    <a href="#" class="requery_link" :class="{ 'requery_link_disabled': busy }"
+                                    {# Re-query: a real link (hover shows the full
+                       query/type/base URL) that also re-runs in place via the
+                       click handler, restoring the entry's base URL. #}
+                                    <a class="requery_link" :class="{ 'requery_link_disabled': busy }"
+                                       :href="shareUrl(entry)"
                                        @click.prevent="requery(entry)">Re-query</a>
                                     {# Share link: copies a URL that reopens the explorer
                        with this entry's query. The link and copied-check

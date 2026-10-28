@@ -2,7 +2,7 @@ use askama::Template;
 use axum::{
     Router,
     extract::State,
-    http::{HeaderValue, StatusCode, header},
+    http::{HeaderMap, HeaderValue, StatusCode, header},
     response::Html,
     routing::{get, post},
 };
@@ -80,7 +80,9 @@ fn render_error(_: askama::Error) -> StatusCode {
     StatusCode::INTERNAL_SERVER_ERROR
 }
 
-async fn render_explorer(State(base): State<String>) -> Result<Html<String>, StatusCode> {
+async fn render_explorer(
+    State(base): State<String>,
+) -> Result<(HeaderMap, Html<String>), StatusCode> {
     let home_url = std::env::var("HOME_URL").unwrap_or_else(|_| "/".to_string());
 
     let search_input = TextInput::new("query")
@@ -124,7 +126,12 @@ async fn render_explorer(State(base): State<String>) -> Result<Html<String>, Sta
         bootstrap_url: base_default,
         exts_list: std::env::var("EXTS_LIST").unwrap_or_default(),
     };
-    Ok(Html(page.render().map_err(render_error)?))
+    // The page embeds runtime config (bootstrap default, exts list) and the
+    // inline app JS, so it must never be cached — a stale copy would ship old
+    // logic and a stale base-URL default.
+    let mut headers = HeaderMap::new();
+    headers.insert(header::CACHE_CONTROL, HeaderValue::from_static("no-store"));
+    Ok((headers, Html(page.render().map_err(render_error)?)))
 }
 
 async fn save_settings() -> Result<Html<String>, StatusCode> {

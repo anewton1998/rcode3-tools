@@ -3,6 +3,17 @@ use std::process::Command;
 
 fn main() {
     let manifest_dir = Path::new(env!("CARGO_MANIFEST_DIR"));
+
+    // Askama compiles templates into the binary at build time. Re-run this
+    // script (and thus recompile the crate) whenever a template changes, so a
+    // template-only edit can never leave a stale compiled page behind.
+    let templates_dir = manifest_dir.join("templates");
+    if let Ok(entries) = std::fs::read_dir(&templates_dir) {
+        for entry in entries.flatten() {
+            println!("cargo:rerun-if-changed={}", entry.path().display());
+        }
+    }
+
     let workspace = manifest_dir.join("../..");
     let wasm_crate = workspace.join("crates/rdap-wasm");
     let out_js = manifest_dir.join("static/wasm/rdap_wasm.js");
