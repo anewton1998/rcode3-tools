@@ -401,6 +401,48 @@
 	color: var(--theme-primary-color);
 }
 
+/* Links table (Relation / Type / URL). Long RDAP URLs are unbroken mono
+   strings, so let them wrap and cap the table to the panel width at all
+   sizes to avoid horizontal overflow. */
+.links_table {
+	max-width: 100%;
+}
+
+.links_table td {
+	overflow-wrap: anywhere;
+}
+
+/* Narrow screens: stack each link row into labeled key/value blocks
+   (hiding the header), matching the .data_key " : " presentation. */
+@media (max-width: 700px) {
+	.links_table,
+	.links_table tbody,
+	.links_table tr {
+		display: block;
+		width: 100%;
+	}
+
+	.links_table thead {
+		display: none;
+	}
+
+	.links_table tr {
+		margin-bottom: .6em;
+	}
+
+	.links_table td {
+		display: block;
+		border-bottom: none;
+		padding: .05em 0;
+	}
+
+	.links_table td::before {
+		content: attr(data-label) " : ";
+		color: var(--theme-primary-color);
+		font-weight: var(--theme-primary-font-weight);
+	}
+}
+
 .data_result {
 	display: flex;
 	flex-direction: column;

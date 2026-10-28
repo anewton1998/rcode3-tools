@@ -313,14 +313,14 @@ fn links_table(links: &Links) -> String {
             continue;
         }
         rows.push(format!(
-            "<tr><td>{rel}</td><td>{media}</td><td>{url}</td></tr>"
+            "<tr><td data-label=\"Relation\">{rel}</td><td data-label=\"Type\">{media}</td><td data-label=\"URL\">{url}</td></tr>"
         ));
     }
     if rows.is_empty() {
         return String::new();
     }
     format!(
-        "<table class=\"data_table\"><thead><tr><th>Relation</th><th>Type</th><th>URL</th></tr></thead><tbody>{}</tbody></table>",
+        "<table class=\"data_table links_table\"><thead><tr><th>Relation</th><th>Type</th><th>URL</th></tr></thead><tbody>{}</tbody></table>",
         rows.join("")
     )
 }
@@ -1067,6 +1067,28 @@ mod tests {
             html.contains("copyToClipboard('https://example.com/plain')"),
             "{html}"
         );
+    }
+
+    #[test]
+    fn links_table_has_responsive_class_and_data_labels() {
+        // GIVEN a domain with a link
+        let json = r#"{
+            "objectClassName": "domain",
+            "ldhName": "example.com",
+            "links": [
+                {"rel": "self", "type": "application/rdap+json", "href": "https://rdap.example/domain/example.com"}
+            ]
+        }"#;
+        let domain: Domain = serde_json::from_str(json).unwrap();
+
+        // WHEN rendered
+        let html = domain_html(&domain, "rdap.example", "");
+
+        // THEN the table carries the responsive class and each cell a data-label
+        assert!(html.contains("class=\"data_table links_table\""), "{html}");
+        assert!(html.contains("data-label=\"Relation\""), "{html}");
+        assert!(html.contains("data-label=\"Type\""), "{html}");
+        assert!(html.contains("data-label=\"URL\""), "{html}");
     }
 
     #[test]
