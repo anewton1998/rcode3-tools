@@ -81,6 +81,13 @@ pub(crate) fn row(label: &str, value: &str) -> String {
     format!("<tr><td class=\"data_key\">{label}</td><td>{value}</td></tr>")
 }
 
+/// A key/value row whose value cell may break long unbroken strings
+/// (emails, phone numbers) so the `fit-content` table can shrink to the
+/// panel instead of overflowing on narrow screens.
+pub(crate) fn row_wrapped(label: &str, value: &str) -> String {
+    format!("<tr><td class=\"data_key\">{label}</td><td class=\"wrap_value\">{value}</td></tr>")
+}
+
 /// Wraps a value in monospace styling.
 pub(crate) fn mono(s: &str) -> String {
     format!("<span class=\"mono_text\">{}</span>", escape(s))

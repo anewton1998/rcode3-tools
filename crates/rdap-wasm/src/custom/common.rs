@@ -8,7 +8,7 @@ use super::anchor::{entity_anchor, id_attr, nameserver_anchor};
 use super::entity::append_entity_body;
 use super::html::{
     div_id, escape, geofeed_download_link, kv_table, lookup_action, mono, off_site_link, row,
-    section, str_opt, title, with_copy,
+    row_wrapped, section, str_opt, title, with_copy,
 };
 
 /// Appends the shared object-common sections (status, events, links, redacted,
@@ -129,16 +129,16 @@ pub(crate) fn entity_label(entity: &Entity) -> Option<String> {
 pub(crate) fn contact_rows(contact: &Contact) -> String {
     let mut rows = Vec::new();
     if let Some(name) = contact.full_name() {
-        rows.push(row("Name", &with_copy(escape(name), name)));
+        rows.push(row_wrapped("Name", &with_copy(escape(name), name)));
     }
     if let Some(org) = contact.organization_name() {
-        rows.push(row("Organization", &with_copy(escape(org), org)));
+        rows.push(row_wrapped("Organization", &with_copy(escape(org), org)));
     }
     let emails: Vec<String> = contact.emails().iter().map(|e| e.email.clone()).collect();
     if !emails.is_empty() {
         // Each email gets its own copy-to-clipboard button.
         let items: Vec<String> = emails.iter().map(|e| with_copy(escape(e), e)).collect();
-        rows.push(row("Email", &items.join(" ")));
+        rows.push(row_wrapped("Email", &items.join(" ")));
     }
     for p in contact.phones() {
         let type_str = p
@@ -151,7 +151,7 @@ pub(crate) fn contact_rows(contact: &Contact) -> String {
         // The copied value drops the `tel:` URI scheme so the user gets
         // the bare phone number on the clipboard.
         let copied = p.phone.strip_prefix("tel:").unwrap_or(&p.phone);
-        rows.push(row(
+        rows.push(row_wrapped(
             "Phone",
             &with_copy(format!("{}{}", escape(&p.phone), type_str), copied),
         ));
@@ -1030,6 +1030,27 @@ mod tests {
         // THEN the name and organization each carry a copy button
         assert!(html.contains("copyToClipboard('John Doe')"), "{html}");
         assert!(html.contains("copyToClipboard('Example Org')"), "{html}");
+    }
+
+    #[test]
+    fn every_contact_value_cell_is_wrappable() {
+        // GIVEN a contact with name, organization, email, and phone
+        let json = r#"["vcard", [
+            ["version", {}, "text", "4.0"],
+            ["fn", {}, "text", "John Doe"],
+            ["org", {}, "text", "Example Org"],
+            ["email", {}, "text", "john@example.com"],
+            ["tel", {"type": ["voice"]}, "uri", "tel:+1.555.1234"]
+        ]]"#;
+        let data: Vec<serde_json::Value> = serde_json::from_str(json).unwrap();
+        let contact = Contact::from_vcard(&data).expect("vCard should parse");
+
+        // WHEN rendered
+        let html = super::contact_rows(&contact);
+
+        // THEN every value cell carries the wrap_value class so long
+        // unbroken emails/phones wrap instead of overflowing
+        assert_eq!(html.matches("class=\"wrap_value\"").count(), 4, "{html}");
     }
 
     #[test]

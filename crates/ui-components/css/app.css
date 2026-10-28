@@ -508,6 +508,16 @@
 	margin-left: .05em;
 }
 
+/* Contact value cells: allow long unbroken strings (emails, phone numbers)
+   to break so the fit-content contact table can shrink to the panel
+   instead of overflowing. `anywhere` (not `break-word`) also shrinks the
+   cell's min-content, which is what lets the fit-content table wrap; wide
+   screens are unaffected because max-content still fits the available
+   width, so values stay on one line until there is a real overflow. */
+.wrap_value {
+	overflow-wrap: anywhere;
+}
+
 /* Copy-to-clipboard button for phones and emails, tinted with the
    same action color as in-page action links. */
 .copy_btn {
