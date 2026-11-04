@@ -12,6 +12,7 @@
 //! `rlib` build keeps the same code path testable with tokio.
 
 mod lookup;
+mod record_names;
 mod render;
 
 use std::sync::Mutex;
@@ -56,10 +57,14 @@ pub fn get_doh_url() -> String {
 }
 
 /// One selectable record type in the dropdown.
+///
+/// `code` is the mnemonic (the `<option>` value sent to the lookup); `label`
+/// is the display text, a formal name with the mnemonic in parentheses
+/// (e.g. `Address (A)`).
 #[derive(serde::Serialize)]
 struct RecordTypeOption {
     code: &'static str,
-    label: &'static str,
+    label: String,
 }
 
 /// A labelled group of record types for the dropdown UI.
@@ -84,7 +89,10 @@ fn record_type_groups() -> Vec<RecordTypeGroup> {
             label,
             options: codes
                 .iter()
-                .map(|code| RecordTypeOption { code, label: code })
+                .map(|code| RecordTypeOption {
+                    code,
+                    label: record_names::record_type_label(code),
+                })
                 .collect(),
         })
         .collect()
@@ -175,8 +183,8 @@ mod tests {
     fn record_type_groups_cover_the_common_types() {
         // GIVEN the dropdown groups
         let groups = record_type_groups();
-        // THEN every advertised code parses as a real record type and the
-        // common lookup types are present.
+        // THEN every advertised code parses as a real record type, its label
+        // is "Formal (MNEMONIC)", and the common lookup types are present.
         let mut codes: Vec<&str> = Vec::new();
         for group in &groups {
             assert!(!group.options.is_empty(), "{} group is empty", group.label);
@@ -187,12 +195,45 @@ mod tests {
                     group.label,
                     option.code
                 );
+                // Every dropdown code must be curated, otherwise it would
+                // silently render as "Unknown (CODE)".
+                assert!(
+                    record_names::formal_record_name(option.code).is_some(),
+                    "dropdown code {} has no curated formal name (would render as Unknown)",
+                    option.code
+                );
+                assert!(
+                    option.label.ends_with(&format!("({})", option.code)),
+                    "label {:?} does not end with the mnemonic ({})",
+                    option.label,
+                    option.code
+                );
                 codes.push(option.code);
             }
         }
         for expected in ["A", "AAAA", "MX", "TXT", "CNAME", "NS", "SOA"] {
             assert!(codes.contains(&expected), "missing {expected} in {codes:?}");
         }
+    }
+
+    #[test]
+    fn record_type_group_labels_are_formal_names() {
+        // GIVEN the dropdown groups
+        // WHEN the offered codes are inspected
+        let groups = record_type_groups();
+        let label_for = |code: &str| -> String {
+            groups
+                .iter()
+                .flat_map(|g| g.options.iter())
+                .find(|o| o.code == code)
+                .map(|o| o.label.clone())
+                .unwrap_or_default()
+        };
+        // THEN each shows the formal name with the mnemonic in parentheses.
+        assert_eq!(label_for("A"), "Address (A)");
+        assert_eq!(label_for("MX"), "Mail Exchange (MX)");
+        assert_eq!(label_for("SOA"), "Start of Authority (SOA)");
+        assert_eq!(label_for("TLSA"), "TLSA Certificate Association (TLSA)");
     }
 
     #[test]

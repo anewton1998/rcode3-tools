@@ -10,6 +10,8 @@ use chrono::{DateTime, Utc};
 use hickory_proto::op::{Message, ResponseCode};
 use hickory_proto::rr::Record;
 
+use crate::record_names::record_type_label;
+
 /// Renders a DNS response message as an HTML fragment: a status banner
 /// followed by one table per non-empty section.
 ///
@@ -116,6 +118,9 @@ fn record_table(title: &str, records: &[Record], received: DateTime<Utc>) -> Str
 /// Renders one record as a key/value `data_table`: each field on its own
 /// row with the field name in a `.data_key` cell.
 fn record_block(record: &Record, received: DateTime<Utc>) -> String {
+    // `RecordType` converts to its `&'static str` mnemonic without allocating,
+    // so the formal-name lookup needs no intermediate `String`.
+    let type_code: &'static str = record.record_type().into();
     format!(
         "<table class=\"data_table\"><tbody>\
          <tr><td class=\"data_key\">Name</td><td class=\"mono_text\">{}</td></tr>\
@@ -127,7 +132,7 @@ fn record_block(record: &Record, received: DateTime<Utc>) -> String {
         escape(&record.name.to_string()),
         ttl_label(record.ttl, received),
         record.dns_class,
-        record.record_type(),
+        record_type_label(type_code),
         escape(&record.data.to_string()),
     )
 }
@@ -215,6 +220,8 @@ mod tests {
         // rendering is timezone-dependent, so only the UTC part is asserted).
         assert!(html.contains("300 seconds until"), "{html}");
         assert!(html.contains("2026-01-01T00:05:00Z"), "{html}");
+        // AND the Type cell shows the formal name with the mnemonic.
+        assert!(html.contains("Address (A)"), "{html}");
     }
 
     #[test]
