@@ -13,7 +13,12 @@ use hickory_proto::rr::Record;
 /// followed by one table per non-empty section.
 pub fn render_message(message: &Message) -> String {
     let mut html = status_banner(message);
-    if !message.answers.is_empty() {
+    if message.answers.is_empty() {
+        // Surface the empty-answer condition right after the status, before
+        // the authority/additional sections that accompany a negative
+        // response, and flag it as a warning.
+        html.push_str("<p class=\"warning_text\">No answer records returned.</p>");
+    } else {
         html.push_str(&record_table("Answers", &message.answers));
     }
     if !message.authorities.is_empty() {
@@ -21,9 +26,6 @@ pub fn render_message(message: &Message) -> String {
     }
     if !message.additionals.is_empty() {
         html.push_str(&record_table("Additional", &message.additionals));
-    }
-    if message.answers.is_empty() {
-        html.push_str("<p class=\"info_text\">No answer records returned.</p>");
     }
     html
 }
@@ -131,8 +133,8 @@ fn escape(text: &str) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use hickory_proto::rr::rdata::{A, TXT};
     use hickory_proto::rr::RData;
+    use hickory_proto::rr::rdata::{A, TXT};
     use std::net::Ipv4Addr;
 
     fn a_record(name: &str, ip: Ipv4Addr, ttl: u32) -> Record {
@@ -190,19 +192,43 @@ mod tests {
 
     #[test]
     fn empty_answers_show_a_placeholder_note() {
-        // GIVEN a NOERROR response with no answers
+        // GIVEN a NOERROR response with no answers but with authority and
+        // additional records (a typical negative response)
         let mut message = Message::new(
             3,
             hickory_proto::op::MessageType::Response,
             hickory_proto::op::OpCode::Query,
         );
         message.metadata.response_code = ResponseCode::NoError;
+        message.add_authority(a_record(
+            "example.com.",
+            Ipv4Addr::new(93, 184, 216, 34),
+            300,
+        ));
+        message.add_additional(a_record("ns.example.", Ipv4Addr::new(1, 2, 3, 4), 300));
 
         // WHEN rendered
         let html = render_message(&message);
 
-        // THEN the "no answer" note is present
-        assert!(html.contains("No answer records returned"), "{html}");
+        // THEN the "no answer" note is a warning and appears before the
+        // authority and additional sections
+        assert!(
+            html.contains("<p class=\"warning_text\">No answer records returned.</p>"),
+            "{html}"
+        );
+        let note_at = html
+            .find("No answer records returned")
+            .expect("no-answer note");
+        let authority_at = html.find(">Authority<").expect("authority section");
+        let additional_at = html.find(">Additional<").expect("additional section");
+        assert!(
+            note_at < authority_at,
+            "note must precede authority: {html}"
+        );
+        assert!(
+            note_at < additional_at,
+            "note must precede additional: {html}"
+        );
     }
 
     #[test]
