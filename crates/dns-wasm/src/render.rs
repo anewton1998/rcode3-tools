@@ -99,17 +99,27 @@ fn edns_label(message: &Message) -> String {
 }
 
 fn record_table(title: &str, records: &[Record]) -> String {
-    let rows: String = records.iter().map(record_row).collect();
-    format!(
-        "<h2 class=\"data_title\">{title}</h2>\
-         <table class=\"data_table\"><thead><tr><th>Name</th><th>TTL</th><th>Class</th><th>Type</th><th>Data</th></tr></thead>\
-         <tbody>{rows}</tbody></table>"
-    )
+    // Each record renders as its own key/value block (one key per row);
+    // consecutive records are separated by an accent divider.
+    let blocks = records
+        .iter()
+        .map(record_block)
+        .collect::<Vec<_>>()
+        .join("<hr class=\"data_divider\">");
+    format!("<h2 class=\"data_title\">{title}</h2><div class=\"data_section\">{blocks}</div>")
 }
 
-fn record_row(record: &Record) -> String {
+/// Renders one record as a key/value `data_table`: each field on its own
+/// row with the field name in a `.data_key` cell.
+fn record_block(record: &Record) -> String {
     format!(
-        "<tr><td class=\"mono_text\">{}</td><td>{}</td><td>{}</td><td>{}</td><td class=\"wrap_value\">{}</td></tr>",
+        "<table class=\"data_table\"><tbody>\
+         <tr><td class=\"data_key\">Name</td><td class=\"mono_text\">{}</td></tr>\
+         <tr><td class=\"data_key\">TTL</td><td>{}</td></tr>\
+         <tr><td class=\"data_key\">Class</td><td>{}</td></tr>\
+         <tr><td class=\"data_key\">Type</td><td>{}</td></tr>\
+         <tr><td class=\"data_key\">Data</td><td class=\"wrap_value\">{}</td></tr>\
+         </tbody></table>",
         escape(&record.name.to_string()),
         record.ttl,
         record.dns_class,
@@ -159,12 +169,68 @@ mod tests {
         // WHEN rendered
         let html = render_message(&message);
 
-        // THEN it carries the status banner and a record table with the data
+        // THEN it carries the status banner and a record block with the data
         assert!(html.contains("Status"), "{html}");
         assert!(html.contains("No Error"), "{html}");
         assert!(html.contains("data_table"), "{html}");
         assert!(html.contains("93.184.216.34"), "{html}");
         assert!(html.contains(">300<"), "{html}");
+    }
+
+    #[test]
+    fn record_block_uses_one_key_per_row() {
+        // GIVEN a message with one A record in the answer section
+        let mut message = Message::new(
+            11,
+            hickory_proto::op::MessageType::Response,
+            hickory_proto::op::OpCode::Query,
+        );
+        message.metadata.response_code = ResponseCode::NoError;
+        message.add_answer(a_record(
+            "example.com.",
+            Ipv4Addr::new(93, 184, 216, 34),
+            300,
+        ));
+
+        // WHEN rendered
+        let html = render_message(&message);
+
+        // THEN the record renders as a key/value block: each field on its
+        // own row with a .data_key cell, and the old column grid is gone
+        for field in ["Name", "TTL", "Class", "Type", "Data"] {
+            assert!(
+                html.contains(&format!("<td class=\"data_key\">{field}</td>")),
+                "missing {field} key row: {html}"
+            );
+        }
+        assert!(!html.contains("stack_table"), "{html}");
+        assert!(!html.contains("data-label"), "{html}");
+        assert!(!html.contains("<thead>"), "{html}");
+    }
+
+    #[test]
+    fn multiple_records_are_separated_by_dividers() {
+        // GIVEN a message with two A records in the answer section
+        let mut message = Message::new(
+            12,
+            hickory_proto::op::MessageType::Response,
+            hickory_proto::op::OpCode::Query,
+        );
+        message.metadata.response_code = ResponseCode::NoError;
+        message.add_answer(a_record("a.example.", Ipv4Addr::new(93, 184, 216, 34), 300));
+        message.add_answer(a_record("b.example.", Ipv4Addr::new(1, 2, 3, 4), 60));
+
+        // WHEN rendered
+        let html = render_message(&message);
+
+        // THEN the two record blocks are separated by exactly one divider
+        assert_eq!(
+            html.matches("class=\"data_divider\"").count(),
+            1,
+            "expected one divider between two records: {html}"
+        );
+        assert!(html.contains("a.example."), "{html}");
+        assert!(html.contains("b.example."), "{html}");
     }
 
     #[test]
