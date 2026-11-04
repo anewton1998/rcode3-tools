@@ -6,12 +6,16 @@
 //! the site. All record text is HTML-escaped before interpolation: DNS data
 //! (especially TXT records) is attacker-controlled.
 
+use chrono::{DateTime, Utc};
 use hickory_proto::op::{Message, ResponseCode};
 use hickory_proto::rr::Record;
 
 /// Renders a DNS response message as an HTML fragment: a status banner
 /// followed by one table per non-empty section.
-pub fn render_message(message: &Message) -> String {
+///
+/// `received` is the UTC instant the response was received; it anchors each
+/// record's TTL expiry ("... until <local> (<rfc3339 UTC>)").
+pub fn render_message(message: &Message, received: DateTime<Utc>) -> String {
     let mut html = status_banner(message);
     if message.answers.is_empty() {
         // Surface the empty-answer condition right after the status, before
@@ -19,13 +23,13 @@ pub fn render_message(message: &Message) -> String {
         // response, and flag it as a warning.
         html.push_str("<p class=\"warning_text\">No answer records returned.</p>");
     } else {
-        html.push_str(&record_table("Answers", &message.answers));
+        html.push_str(&record_table("Answers", &message.answers, received));
     }
     if !message.authorities.is_empty() {
-        html.push_str(&record_table("Authority", &message.authorities));
+        html.push_str(&record_table("Authority", &message.authorities, received));
     }
     if !message.additionals.is_empty() {
-        html.push_str(&record_table("Additional", &message.additionals));
+        html.push_str(&record_table("Additional", &message.additionals, received));
     }
     html
 }
@@ -98,12 +102,12 @@ fn edns_label(message: &Message) -> String {
     }
 }
 
-fn record_table(title: &str, records: &[Record]) -> String {
+fn record_table(title: &str, records: &[Record], received: DateTime<Utc>) -> String {
     // Each record renders as its own key/value block (one key per row);
     // consecutive records are separated by an accent divider.
     let blocks = records
         .iter()
-        .map(record_block)
+        .map(|record| record_block(record, received))
         .collect::<Vec<_>>()
         .join("<hr class=\"data_divider\">");
     format!("<h2 class=\"data_title\">{title}</h2><div class=\"data_section\">{blocks}</div>")
@@ -111,7 +115,7 @@ fn record_table(title: &str, records: &[Record]) -> String {
 
 /// Renders one record as a key/value `data_table`: each field on its own
 /// row with the field name in a `.data_key` cell.
-fn record_block(record: &Record) -> String {
+fn record_block(record: &Record, received: DateTime<Utc>) -> String {
     format!(
         "<table class=\"data_table\"><tbody>\
          <tr><td class=\"data_key\">Name</td><td class=\"mono_text\">{}</td></tr>\
@@ -121,11 +125,36 @@ fn record_block(record: &Record) -> String {
          <tr><td class=\"data_key\">Data</td><td class=\"wrap_value\">{}</td></tr>\
          </tbody></table>",
         escape(&record.name.to_string()),
-        record.ttl,
+        ttl_label(record.ttl, received),
         record.dns_class,
         record.record_type(),
         escape(&record.data.to_string()),
     )
+}
+
+/// Renders a record's TTL (a `u32` count of seconds, per RFC 1035) as a
+/// human-readable expiry relative to `received`: the raw seconds, then
+/// "until" the local-time rendering and the RFC 3339 UTC instant.
+///
+/// The UTC timestamp is wrapped in a `.mono_text` span so it renders in the
+/// monospace font (the local rendering stays in the surrounding font). The
+/// returned value is HTML: the timestamp is chrono-generated, not
+/// user-supplied, so it needs no escaping.
+///
+/// A TTL of `0` means "use for this transaction only, do not cache", so it
+/// is labelled as non-cacheable rather than given a (meaningless) expiry.
+fn ttl_label(ttl: u32, received: DateTime<Utc>) -> String {
+    if ttl == 0 {
+        return "0 seconds (not cacheable)".to_string();
+    }
+    let expires = received
+        + chrono::TimeDelta::try_seconds(i64::from(ttl))
+            .expect("u32 seconds always fits TimeDelta");
+    let local = expires
+        .with_timezone(&chrono::Local)
+        .format("%d %b %Y at %l:%M %P");
+    let utc = expires.to_rfc3339_opts(chrono::SecondsFormat::Secs, true);
+    format!("{ttl} seconds until {local} (<span class=\"mono_text\">{utc}</span>)")
 }
 
 /// Minimal HTML escaping for text interpolated into element content and
@@ -151,6 +180,14 @@ mod tests {
         Record::from_rdata(name.parse().expect("name"), ttl, RData::A(A::from(ip)))
     }
 
+    /// Fixed receipt instant so TTL expiry assertions are deterministic.
+    /// Chosen so `ttl: 300` expires exactly on the next whole minute.
+    fn received() -> DateTime<Utc> {
+        DateTime::parse_from_rfc3339("2026-01-01T00:00:00Z")
+            .expect("fixed received time")
+            .with_timezone(&Utc)
+    }
+
     #[test]
     fn renders_answer_section_as_table() {
         // GIVEN a message with one A record in the answer section
@@ -167,14 +204,17 @@ mod tests {
         ));
 
         // WHEN rendered
-        let html = render_message(&message);
+        let html = render_message(&message, received());
 
         // THEN it carries the status banner and a record block with the data
         assert!(html.contains("Status"), "{html}");
         assert!(html.contains("No Error"), "{html}");
         assert!(html.contains("data_table"), "{html}");
         assert!(html.contains("93.184.216.34"), "{html}");
-        assert!(html.contains(">300<"), "{html}");
+        // AND the TTL is labelled as seconds with its UTC expiry (the local
+        // rendering is timezone-dependent, so only the UTC part is asserted).
+        assert!(html.contains("300 seconds until"), "{html}");
+        assert!(html.contains("2026-01-01T00:05:00Z"), "{html}");
     }
 
     #[test]
@@ -193,7 +233,7 @@ mod tests {
         ));
 
         // WHEN rendered
-        let html = render_message(&message);
+        let html = render_message(&message, received());
 
         // THEN the record renders as a key/value block: each field on its
         // own row with a .data_key cell, and the old column grid is gone
@@ -221,7 +261,7 @@ mod tests {
         message.add_answer(a_record("b.example.", Ipv4Addr::new(1, 2, 3, 4), 60));
 
         // WHEN rendered
-        let html = render_message(&message);
+        let html = render_message(&message, received());
 
         // THEN the two record blocks are separated by exactly one divider
         assert_eq!(
@@ -249,7 +289,7 @@ mod tests {
         ));
 
         // WHEN rendered
-        let html = render_message(&message);
+        let html = render_message(&message, received());
 
         // THEN the payload is escaped and no live script tag survives
         assert!(!html.contains("<script>"), "{html}");
@@ -274,7 +314,7 @@ mod tests {
         message.add_additional(a_record("ns.example.", Ipv4Addr::new(1, 2, 3, 4), 300));
 
         // WHEN rendered
-        let html = render_message(&message);
+        let html = render_message(&message, received());
 
         // THEN the "no answer" note is a warning and appears before the
         // authority and additional sections
@@ -308,7 +348,7 @@ mod tests {
         message.metadata.response_code = ResponseCode::NXDomain;
 
         // WHEN rendered
-        let html = render_message(&message);
+        let html = render_message(&message, received());
 
         // THEN the status cell uses the warning style and names the code
         assert!(html.contains("warning_text"), "{html}");
@@ -327,7 +367,7 @@ mod tests {
         message.metadata.recursion_available = true;
 
         // WHEN rendered
-        let html = render_message(&message);
+        let html = render_message(&message, received());
 
         // THEN the flags row shows the full names with abbreviations, not
         // bare dig codes
@@ -347,7 +387,7 @@ mod tests {
         );
 
         // WHEN rendered
-        let html = render_message(&message);
+        let html = render_message(&message, received());
 
         // THEN the flags row shows the em-dash placeholder
         assert!(
@@ -367,7 +407,7 @@ mod tests {
         message.metadata.truncation = true;
 
         // WHEN rendered
-        let html = render_message(&message);
+        let html = render_message(&message, received());
 
         // THEN the flags row carries the warning style and names the flag
         assert!(html.contains("Truncated (TC)"), "{html}");
@@ -388,7 +428,7 @@ mod tests {
         );
 
         // WHEN rendered
-        let html = render_message(&message);
+        let html = render_message(&message, received());
 
         // THEN the EDNS row reads "None"
         assert!(
@@ -411,7 +451,7 @@ mod tests {
         message.set_edns(edns);
 
         // WHEN rendered
-        let html = render_message(&message);
+        let html = render_message(&message, received());
 
         // THEN the EDNS row shows version, payload and the DO flag
         assert!(html.contains("v0"), "{html}");
@@ -432,10 +472,82 @@ mod tests {
         message.set_edns(edns);
 
         // WHEN rendered
-        let html = render_message(&message);
+        let html = render_message(&message, received());
 
         // THEN the payload is shown but the DO flag is absent
         assert!(html.contains("1232 bytes"), "{html}");
         assert!(!html.contains("DNSSEC OK"), "{html}");
+    }
+
+    #[test]
+    fn ttl_label_shows_seconds_and_utc_expiry() {
+        // GIVEN a 300s TTL received at a fixed instant
+        // WHEN labelled
+        let label = ttl_label(300, received());
+        // THEN it reads as seconds with the "until" phrasing and the exact
+        // RFC 3339 UTC expiry (received + 300s), wrapped in the monospace
+        // span. The local segment is timezone-dependent, so only the UTC
+        // instant is asserted exactly.
+        assert!(label.starts_with("300 seconds until "), "{label}");
+        assert!(
+            label.ends_with(" (<span class=\"mono_text\">2026-01-01T00:05:00Z</span>)"),
+            "{label}"
+        );
+    }
+
+    #[test]
+    fn ttl_label_zero_is_not_cacheable_with_no_expiry() {
+        // GIVEN a TTL of 0 (transaction-only, must not be cached)
+        // WHEN labelled
+        let label = ttl_label(0, received());
+        // THEN it is flagged non-cacheable and carries no "until" time.
+        assert_eq!(label, "0 seconds (not cacheable)");
+        assert!(!label.contains("until"), "{label}");
+    }
+
+    #[test]
+    fn ttl_label_one_second_boundary() {
+        // GIVEN the smallest non-zero TTL
+        // WHEN labelled
+        let label = ttl_label(1, received());
+        // THEN it renders as one second until one second after receipt.
+        assert!(label.starts_with("1 seconds until "), "{label}");
+        assert!(
+            label.ends_with(" (<span class=\"mono_text\">2026-01-01T00:00:01Z</span>)"),
+            "{label}"
+        );
+    }
+
+    #[test]
+    fn ttl_label_handles_max_u32_ttl() {
+        // GIVEN the largest representable TTL (~136 years)
+        // WHEN labelled
+        let label = ttl_label(u32::MAX, received());
+        // THEN the seconds and the UTC expiry are correct with no overflow.
+        assert!(label.starts_with("4294967295 seconds until "), "{label}");
+        assert!(
+            label.ends_with(" (<span class=\"mono_text\">2162-02-07T06:28:15Z</span>)"),
+            "{label}"
+        );
+    }
+
+    #[test]
+    fn ttl_label_includes_local_time_segment() {
+        // GIVEN a non-zero TTL
+        // WHEN labelled
+        let label = ttl_label(3600, received());
+        // THEN the label has a local-time segment between "until" and the
+        // monospace UTC instant (structure is timezone-independent even
+        // though the exact local string is not).
+        let after_until = label.split(" until ").nth(1).unwrap_or_default();
+        let local_part = after_until.split(" (<span").next().unwrap_or_default();
+        assert!(
+            local_part.contains(" at "),
+            "local segment missing 'at': {label}"
+        );
+        assert!(
+            after_until.ends_with("(<span class=\"mono_text\">2026-01-01T01:00:00Z</span>)"),
+            "{label}"
+        );
     }
 }

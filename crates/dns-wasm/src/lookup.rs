@@ -11,6 +11,7 @@ use std::time::Duration;
 
 use base64::Engine;
 use base64::prelude::BASE64_URL_SAFE_NO_PAD;
+use chrono::{DateTime, Utc};
 use hickory_proto::op::{Edns, Message, Query};
 use hickory_proto::rr::{DNSClass, Name, RecordType};
 
@@ -79,12 +80,17 @@ pub fn build_query(name: &str, record_type: RecordType) -> Result<Vec<u8>, Looku
 }
 
 /// Asks `server` (a DoH endpoint, e.g. `https://cloudflare-dns.com/dns-query`)
-/// for `name`/`record_type` and returns the parsed response message.
+/// for `name`/`record_type` and returns the parsed response message together
+/// with the UTC instant the response body was received.
+///
+/// The `received` timestamp is the reference point for the record TTL
+/// countdown (a record's `ttl` is relative to when the client received it),
+/// so it is captured the moment the body arrives rather than at render time.
 pub async fn query_doh(
     server: &str,
     name: &str,
     record_type: RecordType,
-) -> Result<Message, LookupError> {
+) -> Result<(Message, DateTime<Utc>), LookupError> {
     let query_bytes = build_query(name, record_type)?;
     let encoded = BASE64_URL_SAFE_NO_PAD.encode(&query_bytes);
     let separator = if server.contains('?') { '&' } else { '?' };
@@ -108,7 +114,12 @@ pub async fn query_doh(
         .bytes()
         .await
         .map_err(|e| LookupError::Transport(e.to_string()))?;
-    Message::from_vec(&body).map_err(|e| LookupError::Decode(e.to_string()))
+    // Capture the receipt instant before parsing so the TTL countdown is
+    // anchored to when the bytes actually arrived.
+    let received = chrono::Utc::now();
+    Message::from_vec(&body)
+        .map(|message| (message, received))
+        .map_err(|e| LookupError::Decode(e.to_string()))
 }
 
 #[cfg(test)]
@@ -156,13 +167,15 @@ mod tests {
     async fn query_doh_resolves_a_real_name() {
         // GIVEN the public Cloudflare DoH endpoint
         // WHEN example.com/A is queried
-        let message = query_doh(
+        let before = Utc::now();
+        let (message, received) = query_doh(
             "https://cloudflare-dns.com/dns-query",
             "example.com",
             RecordType::A,
         )
         .await
         .expect("doh lookup");
+        let after = Utc::now();
         // THEN the response is a successful answer with at least one record
         assert_eq!(
             message.metadata.response_code,
@@ -170,5 +183,11 @@ mod tests {
         );
         assert!(!message.answers.is_empty(), "expected an A record");
         assert_eq!(message.answers[0].record_type(), RecordType::A);
+        // AND the received timestamp falls inside the call window (captured
+        // at response receipt, not a default/epoch value).
+        assert!(
+            received >= before && received <= after,
+            "received {received} outside call window [{before}, {after}]"
+        );
     }
 }

@@ -407,6 +407,7 @@ name = "dns-wasm"
 version = "0.2.0"
 dependencies = [
  "base64 0.22.1",
+ "chrono",
  "getrandom 0.4.3",
  "hickory-proto",
  "reqwest 0.12.28",

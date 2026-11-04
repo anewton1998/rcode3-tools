@@ -127,7 +127,7 @@ struct DnsLookupResult {
 #[wasm_bindgen(js_name = dnsExplorer)]
 pub async fn dns_explorer(name: &str, record_type: &str) -> Result<JsValue, JsValue> {
     let record_type = parse_record_type(record_type).map_err(|e| JsValue::from_str(&e))?;
-    let message = lookup::query_doh(&current_doh_url(), name, record_type)
+    let (message, received) = lookup::query_doh(&current_doh_url(), name, record_type)
         .await
         .map_err(|e| JsValue::from_str(&e.to_string()))?;
     let error = if message.metadata.response_code == ResponseCode::NoError {
@@ -140,7 +140,7 @@ pub async fn dns_explorer(name: &str, record_type: &str) -> Result<JsValue, JsVa
     let json = serde_json::to_string_pretty(&message)
         .unwrap_or_else(|e| format!("{{\"error\": \"json serialization failed: {e}\"}}"));
     let result = DnsLookupResult {
-        html: render::render_message(&message),
+        html: render::render_message(&message, received),
         json,
         error,
     };

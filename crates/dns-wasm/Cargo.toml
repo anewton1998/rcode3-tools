@@ -8,6 +8,11 @@ crate-type = ["cdylib", "rlib"]
 
 [dependencies]
 base64.workspace = true
+# chrono renders the TTL as a human expiry. `wasmbind` is a chrono *default*
+# feature, so `chrono::Local`/`Utc::now` already resolve via the browser's
+# `Date` on wasm32 and via the system clock on native — no target-specific
+# feature toggle is required.
+chrono = "0.4"
 # hickory-proto provides the DNS wire format (Message/Query/Record/RecordType).
 # The `wasm-bindgen` feature swaps in browser-compatible time handling so the
 # crate compiles to wasm32-unknown-unknown; `serde` enables JSON download of
