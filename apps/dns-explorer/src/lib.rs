@@ -30,7 +30,11 @@ struct Explorer {
 /// The DNS-over-HTTPS servers offered in the dropdown, in display order.
 const DOH_SERVERS: &[&str] = &[
     "https://cloudflare-dns.com/dns-query",
-    "https://dns.quad9.net/dns-query",
+    "https://freedns.controld.com/p1",
+    "https://freedns.controld.com/p2",
+    "https://doh.cleanbrowsing.org/doh/security-filter/",
+    "https://doh.dns.sb/dns-query",
+    "https://protective.joindns4.eu/dns-query",
     "https://dns.google/dns-query",
 ];
 
