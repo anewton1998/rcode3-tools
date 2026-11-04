@@ -2,8 +2,9 @@
 
 # ---------------------------------------------------------------------------
 # Stage 1: build
-# Compiles the rcode3-gateway binary (which merges rcode3-tools + rdap-explorer)
-# and, via apps/rdap-explorer/build.rs, the rdap-wasm browser module.
+# Compiles the rcode3-gateway binary (which merges rcode3-tools,
+# rdap-explorer and dns-explorer) and, via the apps' build.rs scripts, the
+# rdap-wasm and dns-wasm browser modules.
 # ---------------------------------------------------------------------------
 FROM rust:1-slim-bookworm AS build
 
@@ -42,9 +43,10 @@ RUN cargo build --release -p rcode3-gateway
 # CARGO_MANIFEST_DIR paths the binary was compiled against (/app/apps/...),
 # so ServeDir resolves at runtime without assets/ or symlinks.
 RUN set -eux; \
-    mkdir -p /payload/app/apps/rcode3-tools /payload/app/apps/rdap-explorer; \
+    mkdir -p /payload/app/apps/rcode3-tools /payload/app/apps/rdap-explorer /payload/app/apps/dns-explorer; \
     cp -rL apps/rcode3-tools/static /payload/app/apps/rcode3-tools/static; \
     cp -rL apps/rdap-explorer/static /payload/app/apps/rdap-explorer/static; \
+    cp -rL apps/dns-explorer/static /payload/app/apps/dns-explorer/static; \
     cp target/release/rcode3-gateway /payload/app/rcode3-gateway
 
 # ---------------------------------------------------------------------------

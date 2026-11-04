@@ -1,0 +1,492 @@
+{% extends "layout.html" %}
+
+{% block title %}DNS Explorer{% endblock %}
+
+{% block content %}
+<script>
+    // Explorer component for Alpine.js.
+    //
+    // Design notes:
+    // - Query history lives client-side (Alpine state + localStorage) because
+    //   DNS lookups execute in the browser via WASM; the server never sees
+    //   queries or results, so a server-side store would buy nothing.
+    // - Entries store metadata only (no result HTML): storage stays small and
+    //   a re-query always fetches fresh DNS data.
+    // - localStorage is treated as untrusted: every read is shape-validated
+    //   and every access is guarded, so corrupt or unavailable storage
+    //   degrades to a session-only history instead of breaking the app.
+    // - Multi-tab caveat: two open tabs each keep their own history and the
+    //   last writer wins. Accepted for a single-user lookup tool.
+    window.dnsExplorer = function () {
+        const HISTORY_KEY = 'dns-history';
+        const HISTORY_VERSION = 1;
+        const HISTORY_MAX = 50;
+        const NAME_MAX = 253; // RFC 1035 max domain name length
+        const ERROR_MAX = 500;
+        const SERVER_KEY = 'dns-server';
+        const SERVER_VERSION = 1;
+        const SERVER_MAX = 512;
+
+        // A custom DoH server must parse as an absolute https URL.
+        function isValidHttpsUrl(s) {
+            if (typeof s !== 'string') return false;
+            const t = s.trim();
+            if (!t) return false;
+            try {
+                const u = new URL(t);
+                return u.protocol === 'https:';
+            } catch (_) {
+                return false;
+            }
+        }
+
+        // Tolerant read: keep well-formed entries, drop anything else.
+        // The whitelisted `status` guarantees class bindings only ever see
+        // known values, even from tampered storage.
+        function sanitizeEntry(raw) {
+            if (!raw || typeof raw !== 'object') return null;
+            if (typeof raw.name !== 'string' || raw.name.length === 0 || raw.name.length > NAME_MAX) return null;
+            if (typeof raw.recordType !== 'string' || raw.recordType.length === 0) return null;
+            if (raw.status !== 'ok' && raw.status !== 'error') return null;
+            if (!Number.isFinite(raw.id)) return null;
+            return {
+                id: raw.id,
+                name: raw.name,
+                recordType: raw.recordType,
+                status: raw.status,
+                error: typeof raw.error === 'string' ? raw.error.slice(0, ERROR_MAX) : '',
+                time: typeof raw.time === 'string' ? raw.time : '',
+                // The DoH server used for this query, so Re-query can
+                // reproduce it. Absent on older entries → '' (keep current).
+                server: typeof raw.server === 'string' ? raw.server.slice(0, SERVER_MAX) : '',
+                serverCustom: typeof raw.serverCustom === 'string' ? raw.serverCustom.slice(0, SERVER_MAX) : '',
+            };
+        }
+
+        // Monotonic tiebreaker mixed into entry ids so two lookups landing in
+        // the same millisecond can never produce duplicate :key values.
+        let seq = 0;
+
+        return {
+            query: '',
+            recordType: 'A',
+            recordTypeGroups: [],
+            // DoH server: a listed provider, or 'custom' which reveals the
+            // text box. Seeded from the server-rendered meta tag (the
+            // configured default) so the select matches before restore.
+            serverChoice: (document.querySelector('meta[name="dns-doh-url"]') || {}).content || '',
+            serverCustom: '',
+            serverError: '',
+            result: '',
+            error: '',
+            busy: false,
+            jsonText: '', // downloadable JSON for the current result
+            history: [],    // newest first
+            activeId: null, // entry currently shown in Results
+
+            async init() {
+                this.restore();
+                this.restoreServer();
+
+                // Persist the server selection whenever it changes.
+                this.$watch('serverChoice', () => this.persistServer());
+                this.$watch('serverCustom', () => this.persistServer());
+
+                // Pick up a query handed off via a shared link
+                // (e.g. /dns-explorer?name=example.com&type=A) and run it
+                // once the WASM client is ready. A ?server= / ?servercustom=
+                // pair lets the link reproduce the same server selection.
+                const params = new URLSearchParams(window.location.search);
+                const incoming = (params.get('name') || '').trim();
+                this.applyServerParams(params);
+
+                // Ensure the WASM client and the record-type groups are ready.
+                if (!window.DnsClient) {
+                    await new Promise((resolve) =>
+                        window.addEventListener('dns-ready', resolve, { once: true }));
+                }
+                try { this.recordTypeGroups = await window.DnsClient.recordTypeGroups(); }
+                catch (e) { console.error('failed to load record types', e); }
+
+                if (incoming) {
+                    this.query = incoming.slice(0, NAME_MAX);
+                    this.recordType = params.get('type') || 'A';
+                    await this.lookup();
+                } else {
+                    // Keep the WASM client's DoH endpoint in sync with the choice.
+                    this.applyServerToClient();
+                }
+            },
+
+            async lookup() {
+                if (this.busy) return;
+                const q = this.query.trim();
+                if (!q) return;
+                // Resolve + validate the DoH server before going busy. The
+                // check applies to the selected provider too, so a
+                // misconfigured non-https DOH_URL fails here with a clear
+                // message instead of as a mixed-content error at fetch time.
+                const server = this.resolvedServer();
+                if (!isValidHttpsUrl(server)) {
+                    this.serverError = 'Enter a valid https DoH URL';
+                    return;
+                }
+                this.serverError = '';
+                try {
+                    window.DnsClient.set_doh_url(server);
+                } catch (e) {
+                    this.serverError = 'Could not set the DoH server';
+                    return;
+                }
+                // Bring the top of the page into view as the query runs, so the
+                // result panel is in view regardless of where the query was
+                // triggered from (input box or a history Re-query link).
+                window.scrollTo({ top: 0, behavior: 'smooth' });
+                this.busy = true;
+                this.error = '';
+                const entry = {
+                    id: Date.now() * 1000 + (seq++ % 1000),
+                    name: q.slice(0, NAME_MAX),
+                    recordType: this.recordType,
+                    status: 'ok',
+                    error: '',
+                    time: new Date().toLocaleString(),
+                    // Record the server used so Re-query reproduces it.
+                    server: this.serverChoice,
+                    serverCustom: this.serverChoice === 'custom' ? this.serverCustom.trim() : '',
+                };
+                try {
+                    // One fetch yields the result HTML. A non-NOERROR status
+                    // (e.g. NXDOMAIN) renders in `html` with a short summary
+                    // in `error` that drives the red line and the history
+                    // entry. Only a transport failure throws.
+                    const r = await window.DnsClient.dnsExplorer(q, this.recordType);
+                    this.result = r.html;
+                    this.error = r.error || '';
+                    this.jsonText = r.json || '';
+                    if (r.error) {
+                        entry.status = 'error';
+                        entry.error = r.error.slice(0, ERROR_MAX);
+                    }
+                } catch (e) {
+                    // Transport-level failure: no DNS response to render.
+                    entry.status = 'error';
+                    entry.error = String(e).slice(0, ERROR_MAX);
+                    this.error = String(e);
+                    this.result = '';
+                    this.jsonText = '';
+                }
+                this.record(entry);
+                this.persistServer();
+                this.busy = false;
+            },
+
+            // Prepend as newest; dedup so a re-query moves the matching entry
+            // to the top with a fresh timestamp instead of stacking duplicates.
+            record(entry) {
+                const dupe = this.history.findIndex(function (h) {
+                    return h.name === entry.name && h.recordType === entry.recordType;
+                });
+                if (dupe !== -1) this.history.splice(dupe, 1);
+                this.history.unshift(entry);
+                if (this.history.length > HISTORY_MAX) this.history.length = HISTORY_MAX;
+                this.activeId = entry.id;
+                this.persist();
+            },
+
+            // The DoH server actually used for a lookup: the custom text when
+            // 'custom' is chosen, otherwise the selected provider.
+            resolvedServer() {
+                return this.serverChoice === 'custom'
+                    ? this.serverCustom.trim()
+                    : this.serverChoice;
+            },
+
+            // The selectable server values, read from the rendered <select> so
+            // restore/share validation tracks the server-rendered list.
+            validServerOptions() {
+                const sel = this.$el.querySelector('select[name="doh_server"]');
+                if (!sel) return [];
+                return Array.from(sel.options).map(function (o) { return o.value; });
+            },
+
+            // Push the resolved DoH server into the WASM client.
+            applyServerToClient() {
+                const server = this.resolvedServer();
+                if (!server) return;
+                if (this.serverChoice === 'custom' && !isValidHttpsUrl(server)) return;
+                try { window.DnsClient.set_doh_url(server); }
+                catch (e) { console.error('failed to set doh url', e); }
+            },
+
+            // Apply a server selection (a listed value, or 'custom' with a
+            // valid URL). Returns true if a valid selection was applied,
+            // false if it was ignored (caller keeps its current selection).
+            applyServerSelection(choice, custom) {
+                if (choice === 'custom') {
+                    if (isValidHttpsUrl(custom)) {
+                        this.serverChoice = 'custom';
+                        this.serverCustom = custom.trim();
+                        return true;
+                    }
+                    return false;
+                }
+                if (choice && this.validServerOptions().includes(choice)) {
+                    this.serverChoice = choice;
+                    return true;
+                }
+                return false;
+            },
+
+            // Apply a ?server= / ?servercustom= pair from a shared link,
+            // overriding the restored selection. Invalid pairs are ignored.
+            applyServerParams(params) {
+                this.applyServerSelection(params.get('server'), params.get('servercustom'));
+            },
+
+            persistServer() {
+                const payload = { v: SERVER_VERSION, choice: this.serverChoice, custom: this.serverCustom };
+                try {
+                    localStorage.setItem(SERVER_KEY, JSON.stringify(payload));
+                } catch (_) { /* storage unavailable: session-only */ }
+            },
+
+            restoreServer() {
+                let raw = null;
+                try { raw = localStorage.getItem(SERVER_KEY); } catch (_) { return; }
+                if (!raw) return;
+                let parsed = null;
+                try { parsed = JSON.parse(raw); } catch (_) { parsed = null; }
+                if (!parsed || typeof parsed !== 'object' || parsed.v !== SERVER_VERSION) return;
+                const choice = parsed.choice;
+                const custom = typeof parsed.custom === 'string' ? parsed.custom : '';
+                if (choice === 'custom') {
+                    if (isValidHttpsUrl(custom)) {
+                        this.serverChoice = 'custom';
+                        this.serverCustom = custom;
+                    }
+                } else if (this.validServerOptions().includes(choice)) {
+                    this.serverChoice = choice;
+                }
+            },
+
+            async requery(entry) {
+                if (this.busy) return;
+                this.query = entry.name;
+                // Restore the DoH server this query was originally run with
+                // (when recorded and still valid); otherwise keep the current.
+                if (entry.server) {
+                    this.applyServerSelection(entry.server, entry.serverCustom);
+                }
+                this.recordType = entry.recordType;
+                await this.lookup();
+            },
+
+            // Run one of the example queries from the How-to-use panel.
+            async runExample(name, recordType) {
+                if (this.busy) return;
+                this.query = name;
+                this.recordType = recordType;
+                await this.lookup();
+            },
+
+            // Download handler for the JSON link rendered in the result
+            // banner. Alpine does not process directives in x-html content,
+            // so the click is caught here by delegation and the payload is
+            // read from jsonText.
+            onFormatClick(e) {
+                const link = e.target.closest('a[data-download-format]');
+                if (!link) return;
+                e.preventDefault();
+                if (!this.jsonText) return;
+                const url = URL.createObjectURL(new Blob([this.jsonText], { type: 'application/json' }));
+                const a = document.createElement('a');
+                a.href = url;
+                a.download = this.downloadName();
+                document.body.appendChild(a);
+                a.click();
+                document.body.removeChild(a);
+                // Defer the revoke: revoking in the same task as the click
+                // can cancel the download before it starts (historically
+                // Firefox on large payloads).
+                setTimeout(function () { URL.revokeObjectURL(url); }, 10000);
+            },
+
+            // File name derived from the current query so downloads from
+            // different lookups stay distinguishable. Unsafe characters are
+            // collapsed to underscores and the name is length-capped.
+            downloadName() {
+                const base = (this.query || '')
+                    .trim()
+                    .replace(/[^a-zA-Z0-9._-]+/g, '_')
+                    .replace(/^_+|_+$/g, '')
+                    .slice(0, 100);
+                return (base || 'dns') + '_' + this.recordType.toLowerCase() + '.json';
+            },
+
+            // Absolute link that reopens this page with the entry's query and
+            // the DoH server it was run with pre-filled (the init() handoff
+            // reads ?name=&type=&server=&servercustom=). Built from the
+            // current location so any mount base is preserved.
+            shareUrl(entry) {
+                const u = new URL(window.location.href);
+                u.searchParams.set('name', entry.name);
+                u.searchParams.set('type', entry.recordType);
+                const choice = entry.server || this.serverChoice;
+                const custom = entry.serverCustom || this.serverCustom;
+                if (choice === 'custom') {
+                    u.searchParams.set('server', 'custom');
+                    u.searchParams.set('servercustom', (custom || '').trim());
+                } else if (choice) {
+                    u.searchParams.set('server', choice);
+                }
+                return u.toString();
+            },
+
+            clearHistory() {
+                this.history = [];
+                this.activeId = null;
+                try { localStorage.removeItem(HISTORY_KEY); } catch (_) { /* storage unavailable */ }
+            },
+
+            persist() {
+                const encode = (entries) => JSON.stringify({ v: HISTORY_VERSION, entries: entries });
+                try {
+                    localStorage.setItem(HISTORY_KEY, encode(this.history));
+                } catch (_) {
+                    // Quota: persist a trimmed copy only — the visible session
+                    // history keeps all its entries. If even that fails, go
+                    // session-only.
+                    try {
+                        localStorage.setItem(HISTORY_KEY, encode(this.history.slice(0, 10)));
+                    } catch (__) {
+                        console.warn('dns history: storage unavailable; running session-only');
+                    }
+                }
+            },
+
+            restore() {
+                let raw = null;
+                try { raw = localStorage.getItem(HISTORY_KEY); } catch (_) { return; }
+                if (!raw) return;
+                let parsed = null;
+                try { parsed = JSON.parse(raw); } catch (_) { parsed = null; }
+                if (parsed === null || typeof parsed !== 'object') {
+                    // Unparseable garbage: self-heal so we don't re-parse it
+                    // on every load.
+                    try { localStorage.removeItem(HISTORY_KEY); } catch (_) { /* ignore */ }
+                    return;
+                }
+                if (parsed.v !== HISTORY_VERSION || !Array.isArray(parsed.entries)) {
+                    // Unknown or future format: leave it untouched for a
+                    // newer client to handle.
+                    return;
+                }
+                this.history = parsed.entries.map(sanitizeEntry).filter(Boolean).slice(0, HISTORY_MAX);
+                if (this.history.length === 0) {
+                    // Envelope with nothing salvageable: clear it out.
+                    try { localStorage.removeItem(HISTORY_KEY); } catch (_) { /* ignore */ }
+                }
+            },
+        };
+    };
+</script>
+
+<main class="main_panel">
+    <header class="site_banner">
+        <a href="{{ home_url }}"><img src="{{ base }}/static/images/logo-1024.png" alt="rcode3 logo" class="site_logo"></a>
+        <rcode3-site-name>dns explorer</rcode3-site-name>
+        {{ theme_app_html|safe }}
+    </header>
+
+    <div class="explorer_body" x-data="dnsExplorer()">
+        <div class="dash_row dash_row_top">
+            <section class="panel panel_input">
+                <div class="query_input_row">
+                    {{ search_input_html|safe }}
+                    <button type="button" class="clear_btn" title="Clear"
+                            :class="{ 'clear_btn_active': query.length > 0 }"
+                            :disabled="query.length === 0"
+                            @click="query = ''; recordType = 'A'; $el.parentElement.querySelector('input').focus()">&#x232B;</button>
+                    <button id="lookup-btn" class="rcode3_button" :disabled="busy"
+                            @click="lookup()">Explore</button>
+                </div>
+                <div class="query_type_row">
+                    <label class="query_type_label" for="record_type">Record type</label>
+                    {{ record_type_select_html|safe }}
+                </div>
+                <div class="base_url_row">
+                    <label class="base_url_label" for="doh_server">DoH server</label>
+                    <div class="base_url_controls">
+                        {{ doh_server_select_html|safe }}
+                        <span class="base_url_custom" x-show="serverChoice === 'custom'">{{ doh_server_input_html|safe }}</span>
+                    </div>
+                </div>
+                <span x-show="busy">{{ progress_bar_html|safe }}</span>
+                <span class="error_text error_line" x-show="serverError" x-text="serverError"></span>
+                <span class="error_text error_line" x-show="error" x-text="error"></span>
+            </section>
+
+            <section class="panel panel_help">
+                <h2 class="panel_title">How to use</h2>
+                <ul class="help_list">
+                    <li>Enter a domain name, e.g. <a href="#" class="example_link" @click.prevent="runExample('example.com', 'A')"><code>example.com</code></a></li>
+                    <li>Pick a record type: <a href="#" class="example_link" @click.prevent="runExample('example.com', 'AAAA')"><code>AAAA</code></a>, <a href="#" class="example_link" @click.prevent="runExample('example.com', 'MX')"><code>MX</code></a>, <a href="#" class="example_link" @click.prevent="runExample('example.com', 'TXT')"><code>TXT</code></a>, <a href="#" class="example_link" @click.prevent="runExample('_dmarc.example.com', 'TXT')"><code>TXT</code> (DMARC)</a></li>
+                    <li>Choose a DNS-over-HTTPS provider, or supply your own</li>
+                    <li><svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="share-icon info_text"><path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"/><path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"/></svg> share &nbsp; <span class="info_text">&#x21E3;</span> download</li>
+                </ul>
+            </section>
+        </div>
+
+        <div class="dash_row dash_row_bottom">
+            <section class="panel panel_results">
+                <h2 class="panel_title">Results</h2>
+                <div x-html="result" @click="onFormatClick($event)"></div>
+            </section>
+
+            <aside class="panel panel_summary">
+                <div class="summary_header">
+                    <h2 class="panel_title">Summary</h2>
+                    <button type="button" class="history_clear_btn" x-show="history.length > 0"
+                            @click="clearHistory()">Clear</button>
+                </div>
+                <p class="history_empty" x-show="history.length === 0">No queries yet.</p>
+                <div class="history_list">
+                    {# Alpine 3 requires a single root element per x-for iteration,
+                       so the separator lives inside the item, not beside it. #}
+                    <template x-for="(entry, index) in history" :key="entry.id">
+                        <div class="history_item"
+                             :class="{ 'history_item_error': entry.status === 'error',
+                                      'history_item_active': entry.id === activeId }">
+                            <hr class="history_divider" x-show="index > 0">
+                            <div class="history_row">
+                                <span class="history_query" x-text="entry.name"></span>
+                                <span class="history_actions">
+                                    {# Re-query: a real link (hover shows the full
+                       query/type/server URL) that also re-runs in place via the
+                       click handler, restoring the entry's DoH server. #}
+                                    <a class="requery_link" :class="{ 'requery_link_disabled': busy }"
+                                       :href="shareUrl(entry)"
+                                       @click.prevent="requery(entry)">Re-query</a>
+                                    {# Share link: copies a URL that reopens the explorer
+                       with this entry's query. #}
+                                    <a href="#" class="share_link"
+                                       x-data="{ copied: false }"
+                                       :href="shareUrl(entry)"
+                                       :title="copied ? 'Link copied' : 'Copy share link to clipboard'"
+                                       @click.prevent="copyToClipboard(shareUrl(entry)).then(() => { copied = true; setTimeout(() => copied = false, 2000) })"><svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="share-icon" x-show="!copied"><path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"/><path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"/></svg><svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="share-icon share_copied" x-show="copied"><path d="M20 6 9 17l-5-5"/></svg></a>
+                                </span>
+                            </div>
+                            <div class="history_meta">
+                                <span class="history_type" x-text="entry.recordType"></span>
+                                <span class="history_time" x-text="entry.time"></span>
+                            </div>
+                            <div class="history_error" x-show="entry.status === 'error'" x-text="entry.error"></div>
+                        </div>
+                    </template>
+                </div>
+            </aside>
+        </div>
+    </div>
+</main>
+{% endblock %}

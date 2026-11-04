@@ -1,0 +1,71 @@
+<!doctype html>
+<html lang="en" class="{{ theme }}">
+<head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>{% block title %}DNS Explorer{% endblock %}</title>
+    <script src="{{ base }}/static/js/theme.js"></script>
+    <script src="{{ base }}/static/js/theme_app_select.js"></script>
+    <link rel="icon" href="{{ base }}/static/images/favicon.ico" sizes="48x48">
+    <link rel="icon" href="{{ base }}/static/images/favicon.svg" type="image/svg+xml">
+    <link rel="icon" type="image/png" sizes="32x32" href="{{ base }}/static/images/favicon-32.png">
+    <link rel="icon" type="image/png" sizes="16x16" href="{{ base }}/static/images/favicon-16.png">
+    <link rel="apple-touch-icon" href="{{ base }}/static/images/apple-touch-icon.png">
+    <link rel="manifest" href="{{ base }}/static/images/site.webmanifest">
+    <meta name="theme-color" content="#0B1220">
+    <meta property="og:title" content="rcode3">
+    <meta property="og:image" content="https://rcode3.com/og-image.png">
+    <meta property="og:image:width" content="1200">
+    <meta property="og:image:height" content="630">
+    <meta name="twitter:card" content="summary_large_image">
+    <meta name="twitter:image" content="https://rcode3.com/og-image.png">
+    <link rel="stylesheet" href="{{ base }}/base.css" />
+    {% if !doh_url.is_empty() %}
+    <meta name="dns-doh-url" content="{{ doh_url }}">
+    <script>window.DNS_DOH_URL = document.querySelector('meta[name="dns-doh-url"]').content;</script>
+    {% endif %}
+</head>
+<body>
+    {% block content %}{% endblock %}
+    <script type="module">
+        import initDns, * as DnsClient from '{{ base }}/static/wasm/dns_wasm.js';
+        await initDns();
+        if (window.DNS_DOH_URL) {
+            DnsClient.set_doh_url(window.DNS_DOH_URL);
+        }
+        window.DnsClient = DnsClient;
+        window.dispatchEvent(new CustomEvent('dns-ready'));
+    </script>
+    <script>
+        // Copy helper used by the copy-to-clipboard buttons rendered by the
+        // explorer. Uses the async Clipboard API in secure contexts and falls
+        // back to a hidden textarea + execCommand('copy') where
+        // navigator.clipboard is unavailable (e.g. plain HTTP). Returns a
+        // Promise that resolves on a successful copy.
+        window.copyToClipboard = function (text) {
+            if (navigator.clipboard && window.isSecureContext) {
+                return navigator.clipboard.writeText(text);
+            }
+            return new Promise(function (resolve, reject) {
+                var ta = document.createElement('textarea');
+                ta.value = text;
+                ta.setAttribute('readonly', '');
+                ta.style.position = 'fixed';
+                ta.style.top = '-1000px';
+                document.body.appendChild(ta);
+                ta.select();
+                var ok = false;
+                try {
+                    ok = document.execCommand('copy');
+                } catch (e) {
+                    ok = false;
+                }
+                document.body.removeChild(ta);
+                if (ok) { resolve(); } else { reject(new Error('Copy failed')); }
+            });
+        };
+    </script>
+    <script src="{{ base }}/static/vendor/htmx.min.js"></script>
+    <script src="{{ base }}/static/vendor/alpine.min.js" defer></script>
+</body>
+</html>

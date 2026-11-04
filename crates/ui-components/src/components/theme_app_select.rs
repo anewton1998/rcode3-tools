@@ -6,9 +6,13 @@ use crate::theme::Theme;
 ///
 /// Every app that renders [`ThemeAppSelect`] shows exactly this list, so adding a
 /// new app is a one-line change here rather than a per-app edit. The URLs assume
-/// the merged gateway topology (home at `/`, RDAP Explorer at `/rdap-explorer`).
-pub const APP_LINKS: &[(&str, &str)] =
-    &[("RDAP Explorer", "/rdap-explorer"), ("rcode3 tools", "/")];
+/// the merged gateway topology (home at `/`, RDAP Explorer at
+/// `/rdap-explorer`, DNS Explorer at `/dns-explorer`).
+pub const APP_LINKS: &[(&str, &str)] = &[
+    ("RDAP Explorer", "/rdap-explorer"),
+    ("DNS Explorer", "/dns-explorer"),
+    ("rcode3 tools", "/"),
+];
 
 /// A single app entry in the switcher.
 pub struct AppLink<'a> {

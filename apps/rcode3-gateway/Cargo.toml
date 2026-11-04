@@ -5,6 +5,7 @@ edition.workspace = true
 
 [dependencies]
 axum.workspace = true
+dns-explorer = { path = "../dns-explorer" }
 dotenvy.workspace = true
 rdap-explorer = { path = "../rdap-explorer" }
 rcode3-tools = { path = "../rcode3-tools" }
