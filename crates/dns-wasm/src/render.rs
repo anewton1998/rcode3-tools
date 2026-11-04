@@ -6,6 +6,8 @@
 //! the site. All record text is HTML-escaped before interpolation: DNS data
 //! (especially TXT records) is attacker-controlled.
 
+use std::net::{Ipv4Addr, Ipv6Addr};
+
 use chrono::{DateTime, Utc};
 use hickory_proto::op::{Message, ResponseCode};
 use hickory_proto::rr::Record;
@@ -133,8 +135,55 @@ fn record_block(record: &Record, received: DateTime<Utc>) -> String {
         ttl_label(record.ttl, received),
         record.dns_class,
         record_type_label(type_code),
-        escape(&record.data.to_string()),
+        mono_ip_data(&record.data.to_string()),
     )
+}
+
+/// True if `token` parses as an IPv4 or IPv6 address.
+fn is_ip_address(token: &str) -> bool {
+    token.parse::<Ipv4Addr>().is_ok() || token.parse::<Ipv6Addr>().is_ok()
+}
+
+/// Renders record data as HTML with every whitespace-delimited token that
+/// parses as an IP address wrapped in a `.mono_text` span.
+///
+/// Whitespace runs are preserved verbatim and every segment (IP or not) is
+/// HTML-escaped, since record data — TXT strings in particular — is
+/// attacker-controlled. This makes A/AAAA values (a single IP token) render
+/// fully monospace and also highlights standalone IPs embedded in other
+/// record data. Tokens with an IP glued to punctuation (e.g. `1.2.3.4:80`)
+/// are intentionally left as-is: only whole whitespace-delimited tokens are
+/// tested against the address parsers.
+fn mono_ip_data(data: &str) -> String {
+    let mut out = String::with_capacity(data.len());
+    let mut rest = data;
+    while !rest.is_empty() {
+        // Emit any leading whitespace run verbatim.
+        let ws_end = rest
+            .char_indices()
+            .find(|(_, c)| !c.is_whitespace())
+            .map_or(rest.len(), |(i, _)| i);
+        if ws_end > 0 {
+            out.push_str(&rest[..ws_end]);
+            rest = &rest[ws_end..];
+            continue;
+        }
+        // Take the next non-whitespace token and wrap it if it is an IP.
+        let tok_end = rest
+            .char_indices()
+            .find(|(_, c)| c.is_whitespace())
+            .map_or(rest.len(), |(i, _)| i);
+        let token = &rest[..tok_end];
+        if is_ip_address(token) {
+            out.push_str("<span class=\"mono_text\">");
+            out.push_str(&escape(token));
+            out.push_str("</span>");
+        } else {
+            out.push_str(&escape(token));
+        }
+        rest = &rest[tok_end..];
+    }
+    out
 }
 
 /// Renders a record's TTL (a `u32` count of seconds, per RFC 1035) as a
@@ -178,11 +227,27 @@ fn escape(text: &str) -> String {
 mod tests {
     use super::*;
     use hickory_proto::rr::RData;
-    use hickory_proto::rr::rdata::{A, TXT};
-    use std::net::Ipv4Addr;
+    use hickory_proto::rr::rdata::{A, AAAA, TXT};
+    use std::net::{Ipv4Addr, Ipv6Addr};
 
     fn a_record(name: &str, ip: Ipv4Addr, ttl: u32) -> Record {
         Record::from_rdata(name.parse().expect("name"), ttl, RData::A(A::from(ip)))
+    }
+
+    fn aaaa_record(name: &str, ip: Ipv6Addr, ttl: u32) -> Record {
+        Record::from_rdata(
+            name.parse().expect("name"),
+            ttl,
+            RData::AAAA(AAAA::from(ip)),
+        )
+    }
+
+    fn txt_record(name: &str, text: &str, ttl: u32) -> Record {
+        Record::from_rdata(
+            name.parse().expect("name"),
+            ttl,
+            RData::TXT(TXT::new(vec![text.to_string()])),
+        )
     }
 
     /// Fixed receipt instant so TTL expiry assertions are deterministic.
@@ -556,5 +621,142 @@ mod tests {
             after_until.ends_with("(<span class=\"mono_text\">2026-01-01T01:00:00Z</span>)"),
             "{label}"
         );
+    }
+
+    #[test]
+    fn a_record_data_renders_monospace() {
+        // GIVEN an A record whose data is an IPv4 address
+        let mut message = Message::new(
+            20,
+            hickory_proto::op::MessageType::Response,
+            hickory_proto::op::OpCode::Query,
+        );
+        message.metadata.response_code = ResponseCode::NoError;
+        message.add_answer(a_record(
+            "example.com.",
+            Ipv4Addr::new(93, 184, 216, 34),
+            300,
+        ));
+
+        // WHEN rendered
+        let html = render_message(&message, received());
+
+        // THEN the Data cell wraps the IP in a monospace span inside the
+        // wrap_value cell.
+        assert!(
+            html.contains(
+                "Data</td><td class=\"wrap_value\"><span class=\"mono_text\">93.184.216.34</span></td>"
+            ),
+            "{html}"
+        );
+    }
+
+    #[test]
+    fn aaaa_record_data_renders_monospace() {
+        // GIVEN an AAAA record whose data is an IPv6 address
+        let mut message = Message::new(
+            21,
+            hickory_proto::op::MessageType::Response,
+            hickory_proto::op::OpCode::Query,
+        );
+        message.metadata.response_code = ResponseCode::NoError;
+        message.add_answer(aaaa_record(
+            "example.com.",
+            Ipv6Addr::new(0x2606, 0x2800, 0x220, 0x1, 0x248, 0x1893, 0x25c6, 0x1970),
+            300,
+        ));
+
+        // WHEN rendered
+        let html = render_message(&message, received());
+
+        // THEN the IPv6 address is wrapped in a monospace span.
+        assert!(
+            html.contains("<span class=\"mono_text\">2606:2800:220:1:248:1893:25c6:1970</span>"),
+            "{html}"
+        );
+    }
+
+    #[test]
+    fn txt_record_with_standalone_ip_renders_ip_monospace() {
+        // GIVEN a TXT record whose text contains a standalone IPv4
+        let mut message = Message::new(
+            22,
+            hickory_proto::op::MessageType::Response,
+            hickory_proto::op::OpCode::Query,
+        );
+        message.metadata.response_code = ResponseCode::NoError;
+        message.add_answer(txt_record(
+            "example.com.",
+            "backup nameserver 198.51.100.3 available",
+            300,
+        ));
+
+        // WHEN rendered
+        let html = render_message(&message, received());
+
+        // THEN the embedded IP is wrapped in mono within the Data cell,
+        // while the surrounding TXT text stays in the normal font.
+        assert!(
+            html.contains("<span class=\"mono_text\">198.51.100.3</span>"),
+            "{html}"
+        );
+        assert!(html.contains("backup nameserver "), "{html}");
+        assert!(html.contains(" available"), "{html}");
+    }
+
+    #[test]
+    fn mono_ip_data_wraps_standalone_ip_in_text() {
+        // GIVEN TXT-like data with a standalone IPv4 among words
+        // WHEN rendered
+        let html = mono_ip_data("edge router 203.0.113.7 up");
+        // THEN only the IP token is wrapped; the words and spacing are kept.
+        assert_eq!(
+            html,
+            "edge router <span class=\"mono_text\">203.0.113.7</span> up"
+        );
+    }
+
+    #[test]
+    fn mono_ip_data_leaves_non_ip_text_untouched() {
+        // GIVEN data with no IP address
+        // WHEN rendered
+        let html = mono_ip_data("v=spf1 -all");
+        // THEN no monospace span is added.
+        assert_eq!(html, "v=spf1 -all");
+        assert!(!html.contains("mono_text"), "{html}");
+    }
+
+    #[test]
+    fn mono_ip_data_ignores_invalid_ip_like_tokens() {
+        // GIVEN tokens that look IP-ish but do not parse as an address
+        // WHEN rendered
+        let html = mono_ip_data("1.2.3.4.5 999.1.1.1 1.2.3");
+        // THEN none are wrapped.
+        assert!(!html.contains("mono_text"), "{html}");
+        assert_eq!(html, "1.2.3.4.5 999.1.1.1 1.2.3");
+    }
+
+    #[test]
+    fn mono_ip_data_escapes_around_wrapped_ip() {
+        // GIVEN hostile markup plus a standalone IP token
+        // WHEN rendered
+        let html = mono_ip_data("<b>host</b> 10.0.0.1");
+        // THEN the markup is escaped while the IP is still wrapped in mono.
+        assert!(html.contains("&lt;b&gt;"), "{html}");
+        assert!(html.contains("&lt;/b&gt;"), "{html}");
+        assert!(
+            html.contains("<span class=\"mono_text\">10.0.0.1</span>"),
+            "{html}"
+        );
+        assert!(!html.contains("<b>"), "{html}");
+    }
+
+    #[test]
+    fn mono_ip_data_preserves_whitespace_runs() {
+        // GIVEN data with multiple consecutive spaces around an IP
+        // WHEN rendered
+        let html = mono_ip_data("a  1.1.1.1   b");
+        // THEN the whitespace runs are preserved verbatim around the wrapped IP.
+        assert_eq!(html, "a  <span class=\"mono_text\">1.1.1.1</span>   b");
     }
 }
