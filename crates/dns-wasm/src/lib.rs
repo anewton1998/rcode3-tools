@@ -12,6 +12,7 @@
 //! `rlib` build keeps the same code path testable with tokio.
 
 mod lookup;
+mod rdata;
 mod record_names;
 mod render;
 

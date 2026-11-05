@@ -6,12 +6,11 @@
 //! the site. All record text is HTML-escaped before interpolation: DNS data
 //! (especially TXT records) is attacker-controlled.
 
-use std::net::{Ipv4Addr, Ipv6Addr};
-
 use chrono::{DateTime, Utc};
 use hickory_proto::op::{Message, ResponseCode};
 use hickory_proto::rr::Record;
 
+use crate::rdata::{RdataValue, rdata_fields};
 use crate::record_names::record_type_label;
 
 /// Renders a DNS response message as an HTML fragment: a status banner
@@ -119,71 +118,52 @@ fn record_table(title: &str, records: &[Record], received: DateTime<Utc>) -> Str
 
 /// Renders one record as a key/value `data_table`: each field on its own
 /// row with the field name in a `.data_key` cell.
+///
+/// Common record types are expanded into typed, labeled rows by
+/// [`rdata_fields`]. Unmapped types fall back to a single `Data` row with
+/// the escaped string form.
 fn record_block(record: &Record, received: DateTime<Utc>) -> String {
     // `RecordType` converts to its `&'static str` mnemonic without allocating,
     // so the formal-name lookup needs no intermediate `String`.
     let type_code: &'static str = record.record_type().into();
+    let mut rows = vec![
+        row_with_class("Name", "mono_text", escape(&record.name.to_string())),
+        row("TTL", ttl_label(record.ttl, received)),
+        row("Class", record.dns_class.to_string()),
+        row("Type", record_type_label(type_code)),
+    ];
+
+    let fields = rdata_fields(&record.data);
+    if fields.is_empty() {
+        rows.push(row_with_class(
+            "Data",
+            "wrap_value",
+            escape(&record.data.to_string()),
+        ));
+    } else {
+        for field in fields {
+            let value = match field.value {
+                RdataValue::Text(value) => escape(&value),
+                RdataValue::Mono(value) => {
+                    format!("<span class=\"mono_text\">{}</span>", escape(&value))
+                }
+            };
+            rows.push(row_with_class(field.label, "wrap_value", value));
+        }
+    }
+
     format!(
-        "<table class=\"data_table\"><tbody>\
-         <tr><td class=\"data_key\">Name</td><td class=\"mono_text\">{}</td></tr>\
-         <tr><td class=\"data_key\">TTL</td><td>{}</td></tr>\
-         <tr><td class=\"data_key\">Class</td><td>{}</td></tr>\
-         <tr><td class=\"data_key\">Type</td><td>{}</td></tr>\
-         <tr><td class=\"data_key\">Data</td><td class=\"wrap_value\">{}</td></tr>\
-         </tbody></table>",
-        escape(&record.name.to_string()),
-        ttl_label(record.ttl, received),
-        record.dns_class,
-        record_type_label(type_code),
-        mono_ip_data(&record.data.to_string()),
+        "<table class=\"data_table\"><tbody>{}</tbody></table>",
+        rows.join("")
     )
 }
 
-/// True if `token` parses as an IPv4 or IPv6 address.
-fn is_ip_address(token: &str) -> bool {
-    token.parse::<Ipv4Addr>().is_ok() || token.parse::<Ipv6Addr>().is_ok()
+fn row(label: &str, value: String) -> String {
+    format!("<tr><td class=\"data_key\">{label}</td><td>{value}</td></tr>")
 }
 
-/// Renders record data as HTML with every whitespace-delimited token that
-/// parses as an IP address wrapped in a `.mono_text` span.
-///
-/// Whitespace runs are preserved verbatim and every segment (IP or not) is
-/// HTML-escaped, since record data — TXT strings in particular — is
-/// attacker-controlled. This makes A/AAAA values (a single IP token) render
-/// fully monospace and also highlights standalone IPs embedded in other
-/// record data. Tokens with an IP glued to punctuation (e.g. `1.2.3.4:80`)
-/// are intentionally left as-is: only whole whitespace-delimited tokens are
-/// tested against the address parsers.
-fn mono_ip_data(data: &str) -> String {
-    let mut out = String::with_capacity(data.len());
-    let mut rest = data;
-    while !rest.is_empty() {
-        // Emit any leading whitespace run verbatim.
-        let ws_end = rest
-            .char_indices()
-            .find(|(_, c)| !c.is_whitespace())
-            .map_or(rest.len(), |(i, _)| i);
-        if ws_end > 0 {
-            out.push_str(&rest[..ws_end]);
-            rest = &rest[ws_end..];
-            continue;
-        }
-        // Take the next non-whitespace token and wrap it if it is an IP.
-        let tok_end = rest
-            .char_indices()
-            .find(|(_, c)| c.is_whitespace())
-            .map_or(rest.len(), |(i, _)| i);
-        let token = &rest[..tok_end];
-        if is_ip_address(token) {
-            out.push_str("<span class=\"mono_text\">");
-            out.push_str(&escape(token));
-            out.push_str("</span>");
-        } else {
-            out.push_str(&escape(token));
-        }
-        rest = &rest[tok_end..];
-    }
-    out
+fn row_with_class(label: &str, class: &str, value: String) -> String {
+    format!("<tr><td class=\"data_key\">{label}</td><td class=\"{class}\">{value}</td></tr>")
 }
 
 /// Renders a record's TTL (a `u32` count of seconds, per RFC 1035) as a
@@ -227,7 +207,7 @@ fn escape(text: &str) -> String {
 mod tests {
     use super::*;
     use hickory_proto::rr::RData;
-    use hickory_proto::rr::rdata::{A, AAAA, TXT};
+    use hickory_proto::rr::rdata::{A, AAAA, MX, NAPTR, TXT};
     use std::net::{Ipv4Addr, Ipv6Addr};
 
     fn a_record(name: &str, ip: Ipv4Addr, ttl: u32) -> Record {
@@ -247,6 +227,14 @@ mod tests {
             name.parse().expect("name"),
             ttl,
             RData::TXT(TXT::new(vec![text.to_string()])),
+        )
+    }
+
+    fn mx_record(name: &str, preference: u16, exchange: &str, ttl: u32) -> Record {
+        Record::from_rdata(
+            name.parse().expect("name"),
+            ttl,
+            RData::MX(MX::new(preference, exchange.parse().expect("exchange"))),
         )
     }
 
@@ -309,12 +297,16 @@ mod tests {
 
         // THEN the record renders as a key/value block: each field on its
         // own row with a .data_key cell, and the old column grid is gone
-        for field in ["Name", "TTL", "Class", "Type", "Data"] {
+        for field in ["Name", "TTL", "Class", "Type", "Address"] {
             assert!(
                 html.contains(&format!("<td class=\"data_key\">{field}</td>")),
                 "missing {field} key row: {html}"
             );
         }
+        assert!(
+            !html.contains("<td class=\"data_key\">Data</td>"),
+            "mapped A record should not render a fallback Data row: {html}"
+        );
         assert!(!html.contains("stack_table"), "{html}");
         assert!(!html.contains("data-label"), "{html}");
         assert!(!html.contains("<thead>"), "{html}");
@@ -641,11 +633,11 @@ mod tests {
         // WHEN rendered
         let html = render_message(&message, received());
 
-        // THEN the Data cell wraps the IP in a monospace span inside the
+        // THEN the Address cell wraps the IP in a monospace span inside the
         // wrap_value cell.
         assert!(
             html.contains(
-                "Data</td><td class=\"wrap_value\"><span class=\"mono_text\">93.184.216.34</span></td>"
+                "Address</td><td class=\"wrap_value\"><span class=\"mono_text\">93.184.216.34</span></td>"
             ),
             "{html}"
         );
@@ -669,15 +661,17 @@ mod tests {
         // WHEN rendered
         let html = render_message(&message, received());
 
-        // THEN the IPv6 address is wrapped in a monospace span.
+        // THEN the Address cell wraps the IPv6 address in a monospace span.
         assert!(
-            html.contains("<span class=\"mono_text\">2606:2800:220:1:248:1893:25c6:1970</span>"),
+            html.contains(
+                "Address</td><td class=\"wrap_value\"><span class=\"mono_text\">2606:2800:220:1:248:1893:25c6:1970</span></td>"
+            ),
             "{html}"
         );
     }
 
     #[test]
-    fn txt_record_with_standalone_ip_renders_ip_monospace() {
+    fn txt_record_falls_back_to_plain_data_row() {
         // GIVEN a TXT record whose text contains a standalone IPv4
         let mut message = Message::new(
             22,
@@ -694,69 +688,82 @@ mod tests {
         // WHEN rendered
         let html = render_message(&message, received());
 
-        // THEN the embedded IP is wrapped in mono within the Data cell,
-        // while the surrounding TXT text stays in the normal font.
+        // THEN the TXT record uses the fallback Data row and does not scan
+        // the string for IP-like tokens.
         assert!(
-            html.contains("<span class=\"mono_text\">198.51.100.3</span>"),
+            html.contains(
+                "Data</td><td class=\"wrap_value\">backup nameserver 198.51.100.3 available</td>"
+            ),
             "{html}"
         );
-        assert!(html.contains("backup nameserver "), "{html}");
-        assert!(html.contains(" available"), "{html}");
-    }
-
-    #[test]
-    fn mono_ip_data_wraps_standalone_ip_in_text() {
-        // GIVEN TXT-like data with a standalone IPv4 among words
-        // WHEN rendered
-        let html = mono_ip_data("edge router 203.0.113.7 up");
-        // THEN only the IP token is wrapped; the words and spacing are kept.
-        assert_eq!(
-            html,
-            "edge router <span class=\"mono_text\">203.0.113.7</span> up"
-        );
-    }
-
-    #[test]
-    fn mono_ip_data_leaves_non_ip_text_untouched() {
-        // GIVEN data with no IP address
-        // WHEN rendered
-        let html = mono_ip_data("v=spf1 -all");
-        // THEN no monospace span is added.
-        assert_eq!(html, "v=spf1 -all");
-        assert!(!html.contains("mono_text"), "{html}");
-    }
-
-    #[test]
-    fn mono_ip_data_ignores_invalid_ip_like_tokens() {
-        // GIVEN tokens that look IP-ish but do not parse as an address
-        // WHEN rendered
-        let html = mono_ip_data("1.2.3.4.5 999.1.1.1 1.2.3");
-        // THEN none are wrapped.
-        assert!(!html.contains("mono_text"), "{html}");
-        assert_eq!(html, "1.2.3.4.5 999.1.1.1 1.2.3");
-    }
-
-    #[test]
-    fn mono_ip_data_escapes_around_wrapped_ip() {
-        // GIVEN hostile markup plus a standalone IP token
-        // WHEN rendered
-        let html = mono_ip_data("<b>host</b> 10.0.0.1");
-        // THEN the markup is escaped while the IP is still wrapped in mono.
-        assert!(html.contains("&lt;b&gt;"), "{html}");
-        assert!(html.contains("&lt;/b&gt;"), "{html}");
         assert!(
-            html.contains("<span class=\"mono_text\">10.0.0.1</span>"),
+            !html.contains("<span class=\"mono_text\">198.51.100.3</span>"),
             "{html}"
         );
-        assert!(!html.contains("<b>"), "{html}");
     }
 
     #[test]
-    fn mono_ip_data_preserves_whitespace_runs() {
-        // GIVEN data with multiple consecutive spaces around an IP
+    fn mx_record_renders_labeled_rows() {
+        // GIVEN an MX record
+        let mut message = Message::new(
+            23,
+            hickory_proto::op::MessageType::Response,
+            hickory_proto::op::OpCode::Query,
+        );
+        message.metadata.response_code = ResponseCode::NoError;
+        message.add_answer(mx_record("example.com.", 10, "mail.example.", 300));
+
         // WHEN rendered
-        let html = mono_ip_data("a  1.1.1.1   b");
-        // THEN the whitespace runs are preserved verbatim around the wrapped IP.
-        assert_eq!(html, "a  <span class=\"mono_text\">1.1.1.1</span>   b");
+        let html = render_message(&message, received());
+
+        // THEN the MX fields are rendered as separate labeled rows.
+        assert!(
+            html.contains("Preference</td><td class=\"wrap_value\">10</td>"),
+            "{html}"
+        );
+        assert!(
+            html.contains("Exchange</td><td class=\"wrap_value\">mail.example.</td>"),
+            "{html}"
+        );
+        assert!(
+            !html.contains("<td class=\"data_key\">Data</td>"),
+            "mapped MX record should not render a fallback Data row: {html}"
+        );
+    }
+
+    #[test]
+    fn mapped_naptr_regexp_is_escaped() {
+        // GIVEN a mapped NAPTR record whose regexp carries HTML markup
+        let mut message = Message::new(
+            24,
+            hickory_proto::op::MessageType::Response,
+            hickory_proto::op::OpCode::Query,
+        );
+        message.metadata.response_code = ResponseCode::NoError;
+        message.add_answer(Record::from_rdata(
+            "example.com.".parse().expect("name"),
+            300,
+            RData::NAPTR(NAPTR::new(
+                1,
+                2,
+                b"U".to_vec().into_boxed_slice(),
+                b"".to_vec().into_boxed_slice(),
+                b"<script>alert(1)</script>".to_vec().into_boxed_slice(),
+                "replacement.example.".parse().expect("replacement"),
+            )),
+        ));
+
+        // WHEN rendered
+        let html = render_message(&message, received());
+
+        // THEN the mapped row escapes the hostile regexp value.
+        assert!(!html.contains("<script>"), "{html}");
+        assert!(html.contains("&lt;script&gt;"), "{html}");
+        assert!(
+            html.contains(
+                "Regexp</td><td class=\"wrap_value\">&lt;script&gt;alert(1)&lt;/script&gt;</td>"
+            ),
+            "{html}"
+        );
     }
 }
