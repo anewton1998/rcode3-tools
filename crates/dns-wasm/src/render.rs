@@ -167,7 +167,7 @@ fn record_block(record: &Record, received: DateTime<Utc>) -> String {
 /// explicit address query type rather than a reverse-DNS query type.
 fn address_value_html(display: &str, reverse_dns: &str, rdap_query_type: &str) -> String {
     format!(
-        "{}{}",
+        "{} {}",
         reverse_dns_link_html(display, reverse_dns),
         rdap_query_suffix_html(display, rdap_query_type)
     )
@@ -692,7 +692,7 @@ mod tests {
         // and adds an RDAP query link for the original address.
         assert!(
             html.contains(
-                "Address</td><td class=\"wrap_value\"><a class=\"reverse_dns_link mono_text\" href=\"?name=34.216.184.93.in-addr.arpa&amp;type=PTR\" title=\"Query PTR for 34.216.184.93.in-addr.arpa\" aria-label=\"Query PTR for 34.216.184.93.in-addr.arpa\" data-reverse-dns-query=\"34.216.184.93.in-addr.arpa\">93.184.216.34</a><span class=\"rdap_query_suffix\">(<a class=\"rdap_query_link\" href=\"../rdap-explorer?query=93.184.216.34&amp;type=ip_v4_addr\" title=\"Query RDAP for 93.184.216.34\" aria-label=\"Query RDAP for 93.184.216.34\"><span class=\"rdap_query_glyph\" aria-hidden=\"true\">\u{2315}</span><span class=\"rdap_query_text\">RDAP</span></a>)</span></td>"
+                "Address</td><td class=\"wrap_value\"><a class=\"reverse_dns_link mono_text\" href=\"?name=34.216.184.93.in-addr.arpa&amp;type=PTR\" title=\"Query PTR for 34.216.184.93.in-addr.arpa\" aria-label=\"Query PTR for 34.216.184.93.in-addr.arpa\" data-reverse-dns-query=\"34.216.184.93.in-addr.arpa\">93.184.216.34</a> <span class=\"rdap_query_suffix\">(<a class=\"rdap_query_link\" href=\"../rdap-explorer?query=93.184.216.34&amp;type=ip_v4_addr\" title=\"Query RDAP for 93.184.216.34\" aria-label=\"Query RDAP for 93.184.216.34\"><span class=\"rdap_query_glyph\" aria-hidden=\"true\">\u{2315}</span><span class=\"rdap_query_text\">RDAP</span></a>)</span></td>"
             ),
             "{html}"
         );
@@ -720,7 +720,7 @@ mod tests {
         // query link and adds an RDAP query link for the original address.
         assert!(
             html.contains(
-                "Address</td><td class=\"wrap_value\"><a class=\"reverse_dns_link mono_text\" href=\"?name=0.7.9.1.6.c.5.2.3.9.8.1.8.4.2.0.1.0.0.0.0.2.2.0.0.0.8.2.6.0.6.2.ip6.arpa&amp;type=PTR\" title=\"Query PTR for 0.7.9.1.6.c.5.2.3.9.8.1.8.4.2.0.1.0.0.0.0.2.2.0.0.0.8.2.6.0.6.2.ip6.arpa\" aria-label=\"Query PTR for 0.7.9.1.6.c.5.2.3.9.8.1.8.4.2.0.1.0.0.0.0.2.2.0.0.0.8.2.6.0.6.2.ip6.arpa\" data-reverse-dns-query=\"0.7.9.1.6.c.5.2.3.9.8.1.8.4.2.0.1.0.0.0.0.2.2.0.0.0.8.2.6.0.6.2.ip6.arpa\">2606:2800:220:1:248:1893:25c6:1970</a><span class=\"rdap_query_suffix\">(<a class=\"rdap_query_link\" href=\"../rdap-explorer?query=2606:2800:220:1:248:1893:25c6:1970&amp;type=ip_v6_addr\" title=\"Query RDAP for 2606:2800:220:1:248:1893:25c6:1970\" aria-label=\"Query RDAP for 2606:2800:220:1:248:1893:25c6:1970\"><span class=\"rdap_query_glyph\" aria-hidden=\"true\">\u{2315}</span><span class=\"rdap_query_text\">RDAP</span></a>)</span></td>"
+                "Address</td><td class=\"wrap_value\"><a class=\"reverse_dns_link mono_text\" href=\"?name=0.7.9.1.6.c.5.2.3.9.8.1.8.4.2.0.1.0.0.0.0.2.2.0.0.0.8.2.6.0.6.2.ip6.arpa&amp;type=PTR\" title=\"Query PTR for 0.7.9.1.6.c.5.2.3.9.8.1.8.4.2.0.1.0.0.0.0.2.2.0.0.0.8.2.6.0.6.2.ip6.arpa\" aria-label=\"Query PTR for 0.7.9.1.6.c.5.2.3.9.8.1.8.4.2.0.1.0.0.0.0.2.2.0.0.0.8.2.6.0.6.2.ip6.arpa\" data-reverse-dns-query=\"0.7.9.1.6.c.5.2.3.9.8.1.8.4.2.0.1.0.0.0.0.2.2.0.0.0.8.2.6.0.6.2.ip6.arpa\">2606:2800:220:1:248:1893:25c6:1970</a> <span class=\"rdap_query_suffix\">(<a class=\"rdap_query_link\" href=\"../rdap-explorer?query=2606:2800:220:1:248:1893:25c6:1970&amp;type=ip_v6_addr\" title=\"Query RDAP for 2606:2800:220:1:248:1893:25c6:1970\" aria-label=\"Query RDAP for 2606:2800:220:1:248:1893:25c6:1970\"><span class=\"rdap_query_glyph\" aria-hidden=\"true\">\u{2315}</span><span class=\"rdap_query_text\">RDAP</span></a>)</span></td>"
             ),
             "{html}"
         );
@@ -744,7 +744,7 @@ mod tests {
         // RDAP link queries the compressed address itself.
         assert!(
             html.contains(
-                "Address</td><td class=\"wrap_value\"><a class=\"reverse_dns_link mono_text\" href=\"?name=1.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.ip6.arpa&amp;type=PTR\" title=\"Query PTR for 1.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.ip6.arpa\" aria-label=\"Query PTR for 1.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.ip6.arpa\" data-reverse-dns-query=\"1.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.ip6.arpa\">::1</a><span class=\"rdap_query_suffix\">(<a class=\"rdap_query_link\" href=\"../rdap-explorer?query=::1&amp;type=ip_v6_addr\" title=\"Query RDAP for ::1\" aria-label=\"Query RDAP for ::1\"><span class=\"rdap_query_glyph\" aria-hidden=\"true\">\u{2315}</span><span class=\"rdap_query_text\">RDAP</span></a>)</span></td>"
+                "Address</td><td class=\"wrap_value\"><a class=\"reverse_dns_link mono_text\" href=\"?name=1.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.ip6.arpa&amp;type=PTR\" title=\"Query PTR for 1.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.ip6.arpa\" aria-label=\"Query PTR for 1.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.ip6.arpa\" data-reverse-dns-query=\"1.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.ip6.arpa\">::1</a> <span class=\"rdap_query_suffix\">(<a class=\"rdap_query_link\" href=\"../rdap-explorer?query=::1&amp;type=ip_v6_addr\" title=\"Query RDAP for ::1\" aria-label=\"Query RDAP for ::1\"><span class=\"rdap_query_glyph\" aria-hidden=\"true\">\u{2315}</span><span class=\"rdap_query_text\">RDAP</span></a>)</span></td>"
             ),
             "{html}"
         );
