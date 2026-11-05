@@ -18,6 +18,9 @@ chrono = "0.4"
 # crate compiles to wasm32-unknown-unknown; `serde` enables JSON download of
 # parsed messages.
 hickory-proto = { workspace = true, features = ["serde", "wasm-bindgen"] }
+# Reuses the shared reverse-DNS name builder so A/AAAA addresses link to PTR
+# queries with the same mapping used by the RDAP explorer's rdns query types.
+icann-rdap-common.workspace = true
 serde = { version = "1", features = ["derive"] }
 serde-wasm-bindgen.workspace = true
 serde_json = "1"

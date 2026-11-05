@@ -182,6 +182,19 @@
 	color: var(--theme-accent-color);
 }
 
+/* Reverse-DNS query links rendered from A/AAAA address values. Mirrors the
+   example/requery action-link treatment: underlined action color, accent on
+   hover, while the address itself stays monospace via `.mono_text`. */
+.reverse_dns_link {
+	color: var(--theme-action-color);
+	cursor: pointer;
+	text-decoration: underline;
+}
+
+.reverse_dns_link:hover {
+	color: var(--theme-accent-color);
+}
+
 /* "Other Formats" download links (RPSL / JSON) in the result banner.
    In-page actions, so no underline (unlike the example links); the
    download itself is wired in the explorer template via event delegation

@@ -10,14 +10,20 @@ use std::net::IpAddr;
 
 use hickory_proto::rr::RData;
 use hickory_proto::rr::rdata::{A, AAAA};
+use icann_rdap_common::rdns::ip_to_reverse_dns;
 
 /// A display-ready value extracted from record data.
 #[derive(Debug, PartialEq, Eq)]
 pub(crate) enum RdataValue {
     /// Normal-font text.
     Text(String),
-    /// Monospace text, currently used for IP addresses.
-    Mono(String),
+    /// A monospace IP address that can be queried as a reverse DNS PTR name.
+    ReverseDnsLink {
+        /// Visible IP address text.
+        display: String,
+        /// Reverse DNS name to query for this address.
+        target: String,
+    },
 }
 
 /// One labeled field extracted from record data.
@@ -49,7 +55,11 @@ pub(crate) fn ip_from_rdata(rdata: &RData) -> Option<IpAddr> {
 /// `Data` row.
 pub(crate) fn rdata_fields(rdata: &RData) -> Vec<RdataField> {
     if let Some(ip) = ip_from_rdata(rdata) {
-        return vec![mono("Address", ip.to_string())];
+        return vec![reverse_dns_link(
+            "Address",
+            ip.to_string(),
+            ip_to_reverse_dns(&ip),
+        )];
     }
 
     match rdata {
@@ -120,10 +130,17 @@ fn text(label: &'static str, value: impl Into<String>) -> RdataField {
     }
 }
 
-fn mono(label: &'static str, value: impl Into<String>) -> RdataField {
+fn reverse_dns_link(
+    label: &'static str,
+    display: impl Into<String>,
+    target: impl Into<String>,
+) -> RdataField {
     RdataField {
         label,
-        value: RdataValue::Mono(value.into()),
+        value: RdataValue::ReverseDnsLink {
+            display: display.into(),
+            target: target.into(),
+        },
     }
 }
 
@@ -194,25 +211,26 @@ mod tests {
     }
 
     #[test]
-    fn rdata_fields_a_returns_mono_address() {
+    fn rdata_fields_a_returns_reverse_dns_link() {
         // GIVEN an A record's rdata
         let rdata = RData::A(A(Ipv4Addr::new(93, 184, 216, 34)));
 
         // WHEN fields are extracted
         let fields = rdata_fields(&rdata);
 
-        // THEN there is one monospace Address field.
+        // THEN there is one Address field carrying the reverse DNS target.
         assert_eq!(
             fields,
-            vec![RdataField {
-                label: "Address",
-                value: RdataValue::Mono("93.184.216.34".to_string()),
-            }]
+            vec![reverse_dns_link(
+                "Address",
+                "93.184.216.34",
+                "34.216.184.93.in-addr.arpa"
+            )]
         );
     }
 
     #[test]
-    fn rdata_fields_aaaa_returns_mono_address() {
+    fn rdata_fields_aaaa_returns_reverse_dns_link() {
         // GIVEN an AAAA record's rdata
         let rdata = RData::AAAA(AAAA(Ipv6Addr::new(
             0x2606, 0x2800, 0x220, 0x1, 0x248, 0x1893, 0x25c6, 0x1970,
@@ -221,13 +239,34 @@ mod tests {
         // WHEN fields are extracted
         let fields = rdata_fields(&rdata);
 
-        // THEN there is one monospace Address field.
+        // THEN there is one Address field carrying the IPv6 reverse DNS target.
         assert_eq!(
             fields,
-            vec![RdataField {
-                label: "Address",
-                value: RdataValue::Mono("2606:2800:220:1:248:1893:25c6:1970".to_string()),
-            }]
+            vec![reverse_dns_link(
+                "Address",
+                "2606:2800:220:1:248:1893:25c6:1970",
+                "0.7.9.1.6.c.5.2.3.9.8.1.8.4.2.0.1.0.0.0.0.2.2.0.0.0.8.2.6.0.6.2.ip6.arpa"
+            )]
+        );
+    }
+
+    #[test]
+    fn rdata_fields_aaaa_uses_full_reverse_target_for_compressed_ipv6() {
+        // GIVEN a compressed IPv6 address
+        let rdata = RData::AAAA(AAAA(Ipv6Addr::LOCALHOST));
+
+        // WHEN fields are extracted
+        let fields = rdata_fields(&rdata);
+
+        // THEN the visible address stays compressed while the PTR target is
+        // the full reverse name.
+        assert_eq!(
+            fields,
+            vec![reverse_dns_link(
+                "Address",
+                "::1",
+                "1.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.ip6.arpa"
+            )]
         );
     }
 

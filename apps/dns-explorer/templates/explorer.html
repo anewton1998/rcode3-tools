@@ -290,6 +290,34 @@
                 await this.lookup();
             },
 
+            // Run a reverse DNS PTR query for a reverse name produced from
+            // an A/AAAA address in the result panel.
+            async runReverseDns(name) {
+                if (this.busy) return;
+                this.query = name;
+                this.recordType = 'PTR';
+                await this.lookup();
+            },
+
+            // Delegated click handler for the result panel. Reverse-DNS
+            // links run in place; other links fall through to the existing
+            // download handler.
+            onResultClick(e) {
+                const reverse = e.target.closest('a[data-reverse-dns-query]');
+                if (reverse) {
+                    // Let modifier-clicks and non-primary buttons use the
+                    // relative href (open in a new tab/window) instead of
+                    // hijacking them into an in-place lookup.
+                    if (e.ctrlKey || e.metaKey || e.shiftKey || e.altKey || e.button !== 0) {
+                        return;
+                    }
+                    e.preventDefault();
+                    this.runReverseDns(reverse.dataset.reverseDnsQuery);
+                    return;
+                }
+                this.onFormatClick(e);
+            },
+
             // Download handler for the JSON link rendered in the result
             // banner. Alpine does not process directives in x-html content,
             // so the click is caught here by delegation and the payload is
@@ -441,7 +469,7 @@
         <div class="dash_row dash_row_bottom">
             <section class="panel panel_results">
                 <h2 class="panel_title">Results</h2>
-                <div x-html="result" @click="onFormatClick($event)"></div>
+                <div x-html="result" @click="onResultClick($event)"></div>
             </section>
 
             <aside class="panel panel_summary">

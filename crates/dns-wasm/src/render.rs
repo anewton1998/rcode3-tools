@@ -144,8 +144,8 @@ fn record_block(record: &Record, received: DateTime<Utc>) -> String {
         for field in fields {
             let value = match field.value {
                 RdataValue::Text(value) => escape(&value),
-                RdataValue::Mono(value) => {
-                    format!("<span class=\"mono_text\">{}</span>", escape(&value))
+                RdataValue::ReverseDnsLink { display, target } => {
+                    reverse_dns_link_html(&display, &target)
                 }
             };
             rows.push(row_with_class(field.label, "wrap_value", value));
@@ -155,6 +155,26 @@ fn record_block(record: &Record, received: DateTime<Utc>) -> String {
     format!(
         "<table class=\"data_table\"><tbody>{}</tbody></table>",
         rows.join("")
+    )
+}
+
+/// Renders an IP address as an in-page reverse-DNS query link.
+///
+/// The visible text is the address itself; the link target is the PTR name
+/// produced by `icann_rdap_common::rdns::ip_to_reverse_dns`. The relative
+/// `href` lets middle-click or modifier-click open the same query in a new
+/// tab, while the explorer's delegated click handler runs the lookup in
+/// place.
+///
+/// The href is HTML-escaped but not percent-encoded: `ip_to_reverse_dns`
+/// only emits `[0-9a-f.]` labels, so the query string is already URL-safe.
+fn reverse_dns_link_html(display: &str, target: &str) -> String {
+    let href = escape(&format!("?name={target}&type=PTR"));
+    let label = escape(&format!("Query PTR for {target}"));
+    format!(
+        "<a class=\"reverse_dns_link mono_text\" href=\"{href}\" title=\"{label}\" aria-label=\"{label}\" data-reverse-dns-query=\"{}\">{}</a>",
+        escape(target),
+        escape(display)
     )
 }
 
@@ -616,7 +636,7 @@ mod tests {
     }
 
     #[test]
-    fn a_record_data_renders_monospace() {
+    fn a_record_data_renders_reverse_dns_link() {
         // GIVEN an A record whose data is an IPv4 address
         let mut message = Message::new(
             20,
@@ -633,18 +653,17 @@ mod tests {
         // WHEN rendered
         let html = render_message(&message, received());
 
-        // THEN the Address cell wraps the IP in a monospace span inside the
-        // wrap_value cell.
+        // THEN the Address cell renders the IP as a reverse-DNS query link.
         assert!(
             html.contains(
-                "Address</td><td class=\"wrap_value\"><span class=\"mono_text\">93.184.216.34</span></td>"
+                "Address</td><td class=\"wrap_value\"><a class=\"reverse_dns_link mono_text\" href=\"?name=34.216.184.93.in-addr.arpa&amp;type=PTR\" title=\"Query PTR for 34.216.184.93.in-addr.arpa\" aria-label=\"Query PTR for 34.216.184.93.in-addr.arpa\" data-reverse-dns-query=\"34.216.184.93.in-addr.arpa\">93.184.216.34</a></td>"
             ),
             "{html}"
         );
     }
 
     #[test]
-    fn aaaa_record_data_renders_monospace() {
+    fn aaaa_record_data_renders_reverse_dns_link() {
         // GIVEN an AAAA record whose data is an IPv6 address
         let mut message = Message::new(
             21,
@@ -661,10 +680,35 @@ mod tests {
         // WHEN rendered
         let html = render_message(&message, received());
 
-        // THEN the Address cell wraps the IPv6 address in a monospace span.
+        // THEN the Address cell renders the IPv6 address as a reverse-DNS
+        // query link.
         assert!(
             html.contains(
-                "Address</td><td class=\"wrap_value\"><span class=\"mono_text\">2606:2800:220:1:248:1893:25c6:1970</span></td>"
+                "Address</td><td class=\"wrap_value\"><a class=\"reverse_dns_link mono_text\" href=\"?name=0.7.9.1.6.c.5.2.3.9.8.1.8.4.2.0.1.0.0.0.0.2.2.0.0.0.8.2.6.0.6.2.ip6.arpa&amp;type=PTR\" title=\"Query PTR for 0.7.9.1.6.c.5.2.3.9.8.1.8.4.2.0.1.0.0.0.0.2.2.0.0.0.8.2.6.0.6.2.ip6.arpa\" aria-label=\"Query PTR for 0.7.9.1.6.c.5.2.3.9.8.1.8.4.2.0.1.0.0.0.0.2.2.0.0.0.8.2.6.0.6.2.ip6.arpa\" data-reverse-dns-query=\"0.7.9.1.6.c.5.2.3.9.8.1.8.4.2.0.1.0.0.0.0.2.2.0.0.0.8.2.6.0.6.2.ip6.arpa\">2606:2800:220:1:248:1893:25c6:1970</a></td>"
+            ),
+            "{html}"
+        );
+    }
+
+    #[test]
+    fn compressed_ipv6_record_renders_full_reverse_dns_target() {
+        // GIVEN a compressed IPv6 address
+        let mut message = Message::new(
+            25,
+            hickory_proto::op::MessageType::Response,
+            hickory_proto::op::OpCode::Query,
+        );
+        message.metadata.response_code = ResponseCode::NoError;
+        message.add_answer(aaaa_record("example.com.", Ipv6Addr::LOCALHOST, 300));
+
+        // WHEN rendered
+        let html = render_message(&message, received());
+
+        // THEN the link displays the compressed address but queries the
+        // full reverse DNS target.
+        assert!(
+            html.contains(
+                "Address</td><td class=\"wrap_value\"><a class=\"reverse_dns_link mono_text\" href=\"?name=1.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.ip6.arpa&amp;type=PTR\" title=\"Query PTR for 1.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.ip6.arpa\" aria-label=\"Query PTR for 1.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.ip6.arpa\" data-reverse-dns-query=\"1.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.ip6.arpa\">::1</a></td>"
             ),
             "{html}"
         );
