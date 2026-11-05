@@ -299,10 +299,26 @@
                 await this.lookup();
             },
 
-            // Delegated click handler for the result panel. Reverse-DNS
-            // links run in place; other links fall through to the existing
-            // download handler.
+            // Delegated click handler for the result panel. Copy buttons
+            // copy the IP to the clipboard; reverse-DNS links run in
+            // place; other links fall through to the download handler.
             onResultClick(e) {
+                // Copy-to-clipboard buttons (rendered by the WASM
+                // address_value_html with data-copy-value).
+                const copyBtn = e.target.closest('button[data-copy-value]');
+                if (copyBtn) {
+                    e.preventDefault();
+                    copyToClipboard(copyBtn.dataset.copyValue).then(function () {
+                        const icons = copyBtn.querySelectorAll('svg');
+                        icons[0].style.display = 'none';
+                        icons[1].style.display = '';
+                        setTimeout(function () {
+                            icons[0].style.display = '';
+                            icons[1].style.display = 'none';
+                        }, 2000);
+                    });
+                    return;
+                }
                 const reverse = e.target.closest('a[data-reverse-dns-query]');
                 if (reverse) {
                     // Let modifier-clicks and non-primary buttons use the

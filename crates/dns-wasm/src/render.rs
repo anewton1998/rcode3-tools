@@ -160,16 +160,21 @@ fn record_block(record: &Record, received: DateTime<Utc>) -> String {
     )
 }
 
-/// Renders an IP address with its reverse-DNS link and RDAP query suffix.
+/// Renders an IP address with its reverse-DNS link, RDAP query suffix,
+/// and a copy-to-clipboard button.
 ///
 /// The visible address remains the in-page PTR link. The trailing
 /// `(⌕ RDAP)` opens the RDAP Explorer for the original address, using the
 /// explicit address query type rather than a reverse-DNS query type.
+/// The copy button carries `data-copy-value` so the explorer's delegated
+/// click handler can copy the IP without Alpine processing `x-html`
+/// directives.
 fn address_value_html(display: &str, reverse_dns: &str, rdap_query_type: &str) -> String {
     format!(
-        "{} {}",
+        "{} {} {}",
         reverse_dns_link_html(display, reverse_dns),
-        rdap_query_suffix_html(display, rdap_query_type)
+        rdap_query_suffix_html(display, rdap_query_type),
+        copy_button_html(display)
     )
 }
 
@@ -210,6 +215,34 @@ fn rdap_query_suffix_html(display: &str, rdap_query_type: &str) -> String {
     let label = escape(&format!("Query RDAP for {display}"));
     format!(
         "<span class=\"rdap_query_suffix\">(<a class=\"rdap_query_link\" href=\"{href}\" title=\"{label}\" aria-label=\"{label}\"><span class=\"rdap_query_glyph\" aria-hidden=\"true\">\u{2315}</span><span class=\"rdap_query_text\">RDAP</span></a>)</span>"
+    )
+}
+
+/// The copy-to-clipboard icon (shown while not just-copied).
+const COPY_ICON_SVG: &str = r#"<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="copy-icon"><rect width="8" height="4" x="8" y="2" rx="1" ry="1"/><path d="M16 4h2a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h2"/></svg>"#;
+
+/// The checkmark icon (shown for two seconds after a successful copy).
+/// Hidden by default via inline `style="display:none"` because the DNS
+/// explorer's result panel uses `x-html`, where Alpine does not process
+/// `x-show` directives. The delegated click handler toggles the inline
+/// style directly.
+const CHECK_ICON_SVG: &str = r#"<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="check-icon" style="display:none"><path d="M20 6 9 17l-5-5"/></svg>"#;
+
+/// Renders a copy-to-clipboard button for an IP address value.
+///
+/// The button carries `data-copy-value` so the explorer's delegated
+/// click handler (`onResultClick`) can copy the address via the
+/// `copyToClipboard` helper defined in `layout.html`. The copy icon
+/// swaps to a checkmark for two seconds on success, then swaps back.
+///
+/// Unlike the `rdap-wasm` copy button (which uses inline Alpine
+/// directives), this button uses `data-copy-value` because the DNS
+/// explorer's result panel is rendered via `x-html`, where Alpine does
+/// not process directives in the inserted content.
+fn copy_button_html(value: &str) -> String {
+    format!(
+        "<button type=\"button\" class=\"copy_btn\" title=\"Copy IP to clipboard\" aria-label=\"Copy {escaped} to clipboard\" data-copy-value=\"{escaped}\">{COPY_ICON_SVG}{CHECK_ICON_SVG}</button>",
+        escaped = escape(value),
     )
 }
 
@@ -692,7 +725,7 @@ mod tests {
         // and adds an RDAP query link for the original address.
         assert!(
             html.contains(
-                "Address</td><td class=\"wrap_value\"><a class=\"reverse_dns_link mono_text\" href=\"?name=34.216.184.93.in-addr.arpa&amp;type=PTR\" title=\"Query PTR for 34.216.184.93.in-addr.arpa\" aria-label=\"Query PTR for 34.216.184.93.in-addr.arpa\" data-reverse-dns-query=\"34.216.184.93.in-addr.arpa\">93.184.216.34</a> <span class=\"rdap_query_suffix\">(<a class=\"rdap_query_link\" href=\"../rdap-explorer?query=93.184.216.34&amp;type=ip_v4_addr\" title=\"Query RDAP for 93.184.216.34\" aria-label=\"Query RDAP for 93.184.216.34\"><span class=\"rdap_query_glyph\" aria-hidden=\"true\">\u{2315}</span><span class=\"rdap_query_text\">RDAP</span></a>)</span></td>"
+                "Address</td><td class=\"wrap_value\"><a class=\"reverse_dns_link mono_text\" href=\"?name=34.216.184.93.in-addr.arpa&amp;type=PTR\" title=\"Query PTR for 34.216.184.93.in-addr.arpa\" aria-label=\"Query PTR for 34.216.184.93.in-addr.arpa\" data-reverse-dns-query=\"34.216.184.93.in-addr.arpa\">93.184.216.34</a> <span class=\"rdap_query_suffix\">(<a class=\"rdap_query_link\" href=\"../rdap-explorer?query=93.184.216.34&amp;type=ip_v4_addr\" title=\"Query RDAP for 93.184.216.34\" aria-label=\"Query RDAP for 93.184.216.34\"><span class=\"rdap_query_glyph\" aria-hidden=\"true\">\u{2315}</span><span class=\"rdap_query_text\">RDAP</span></a>)</span> <button type=\"button\" class=\"copy_btn\" title=\"Copy IP to clipboard\" aria-label=\"Copy 93.184.216.34 to clipboard\" data-copy-value=\"93.184.216.34\"><svg xmlns=\"http://www.w3.org/2000/svg\" width=\"24\" height=\"24\" viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"2\" stroke-linecap=\"round\" stroke-linejoin=\"round\" class=\"copy-icon\"><rect width=\"8\" height=\"4\" x=\"8\" y=\"2\" rx=\"1\" ry=\"1\"/><path d=\"M16 4h2a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h2\"/></svg><svg xmlns=\"http://www.w3.org/2000/svg\" width=\"24\" height=\"24\" viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"2\" stroke-linecap=\"round\" stroke-linejoin=\"round\" class=\"check-icon\" style=\"display:none\"><path d=\"M20 6 9 17l-5-5\"/></svg></button></td>"
             ),
             "{html}"
         );
@@ -720,7 +753,7 @@ mod tests {
         // query link and adds an RDAP query link for the original address.
         assert!(
             html.contains(
-                "Address</td><td class=\"wrap_value\"><a class=\"reverse_dns_link mono_text\" href=\"?name=0.7.9.1.6.c.5.2.3.9.8.1.8.4.2.0.1.0.0.0.0.2.2.0.0.0.8.2.6.0.6.2.ip6.arpa&amp;type=PTR\" title=\"Query PTR for 0.7.9.1.6.c.5.2.3.9.8.1.8.4.2.0.1.0.0.0.0.2.2.0.0.0.8.2.6.0.6.2.ip6.arpa\" aria-label=\"Query PTR for 0.7.9.1.6.c.5.2.3.9.8.1.8.4.2.0.1.0.0.0.0.2.2.0.0.0.8.2.6.0.6.2.ip6.arpa\" data-reverse-dns-query=\"0.7.9.1.6.c.5.2.3.9.8.1.8.4.2.0.1.0.0.0.0.2.2.0.0.0.8.2.6.0.6.2.ip6.arpa\">2606:2800:220:1:248:1893:25c6:1970</a> <span class=\"rdap_query_suffix\">(<a class=\"rdap_query_link\" href=\"../rdap-explorer?query=2606:2800:220:1:248:1893:25c6:1970&amp;type=ip_v6_addr\" title=\"Query RDAP for 2606:2800:220:1:248:1893:25c6:1970\" aria-label=\"Query RDAP for 2606:2800:220:1:248:1893:25c6:1970\"><span class=\"rdap_query_glyph\" aria-hidden=\"true\">\u{2315}</span><span class=\"rdap_query_text\">RDAP</span></a>)</span></td>"
+                "Address</td><td class=\"wrap_value\"><a class=\"reverse_dns_link mono_text\" href=\"?name=0.7.9.1.6.c.5.2.3.9.8.1.8.4.2.0.1.0.0.0.0.2.2.0.0.0.8.2.6.0.6.2.ip6.arpa&amp;type=PTR\" title=\"Query PTR for 0.7.9.1.6.c.5.2.3.9.8.1.8.4.2.0.1.0.0.0.0.2.2.0.0.0.8.2.6.0.6.2.ip6.arpa\" aria-label=\"Query PTR for 0.7.9.1.6.c.5.2.3.9.8.1.8.4.2.0.1.0.0.0.0.2.2.0.0.0.8.2.6.0.6.2.ip6.arpa\" data-reverse-dns-query=\"0.7.9.1.6.c.5.2.3.9.8.1.8.4.2.0.1.0.0.0.0.2.2.0.0.0.8.2.6.0.6.2.ip6.arpa\">2606:2800:220:1:248:1893:25c6:1970</a> <span class=\"rdap_query_suffix\">(<a class=\"rdap_query_link\" href=\"../rdap-explorer?query=2606:2800:220:1:248:1893:25c6:1970&amp;type=ip_v6_addr\" title=\"Query RDAP for 2606:2800:220:1:248:1893:25c6:1970\" aria-label=\"Query RDAP for 2606:2800:220:1:248:1893:25c6:1970\"><span class=\"rdap_query_glyph\" aria-hidden=\"true\">\u{2315}</span><span class=\"rdap_query_text\">RDAP</span></a>)</span> <button type=\"button\" class=\"copy_btn\" title=\"Copy IP to clipboard\" aria-label=\"Copy 2606:2800:220:1:248:1893:25c6:1970 to clipboard\" data-copy-value=\"2606:2800:220:1:248:1893:25c6:1970\"><svg xmlns=\"http://www.w3.org/2000/svg\" width=\"24\" height=\"24\" viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"2\" stroke-linecap=\"round\" stroke-linejoin=\"round\" class=\"copy-icon\"><rect width=\"8\" height=\"4\" x=\"8\" y=\"2\" rx=\"1\" ry=\"1\"/><path d=\"M16 4h2a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h2\"/></svg><svg xmlns=\"http://www.w3.org/2000/svg\" width=\"24\" height=\"24\" viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"2\" stroke-linecap=\"round\" stroke-linejoin=\"round\" class=\"check-icon\" style=\"display:none\"><path d=\"M20 6 9 17l-5-5\"/></svg></button></td>"
             ),
             "{html}"
         );
@@ -744,7 +777,7 @@ mod tests {
         // RDAP link queries the compressed address itself.
         assert!(
             html.contains(
-                "Address</td><td class=\"wrap_value\"><a class=\"reverse_dns_link mono_text\" href=\"?name=1.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.ip6.arpa&amp;type=PTR\" title=\"Query PTR for 1.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.ip6.arpa\" aria-label=\"Query PTR for 1.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.ip6.arpa\" data-reverse-dns-query=\"1.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.ip6.arpa\">::1</a> <span class=\"rdap_query_suffix\">(<a class=\"rdap_query_link\" href=\"../rdap-explorer?query=::1&amp;type=ip_v6_addr\" title=\"Query RDAP for ::1\" aria-label=\"Query RDAP for ::1\"><span class=\"rdap_query_glyph\" aria-hidden=\"true\">\u{2315}</span><span class=\"rdap_query_text\">RDAP</span></a>)</span></td>"
+                "Address</td><td class=\"wrap_value\"><a class=\"reverse_dns_link mono_text\" href=\"?name=1.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.ip6.arpa&amp;type=PTR\" title=\"Query PTR for 1.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.ip6.arpa\" aria-label=\"Query PTR for 1.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.ip6.arpa\" data-reverse-dns-query=\"1.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.ip6.arpa\">::1</a> <span class=\"rdap_query_suffix\">(<a class=\"rdap_query_link\" href=\"../rdap-explorer?query=::1&amp;type=ip_v6_addr\" title=\"Query RDAP for ::1\" aria-label=\"Query RDAP for ::1\"><span class=\"rdap_query_glyph\" aria-hidden=\"true\">\u{2315}</span><span class=\"rdap_query_text\">RDAP</span></a>)</span> <button type=\"button\" class=\"copy_btn\" title=\"Copy IP to clipboard\" aria-label=\"Copy ::1 to clipboard\" data-copy-value=\"::1\"><svg xmlns=\"http://www.w3.org/2000/svg\" width=\"24\" height=\"24\" viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"2\" stroke-linecap=\"round\" stroke-linejoin=\"round\" class=\"copy-icon\"><rect width=\"8\" height=\"4\" x=\"8\" y=\"2\" rx=\"1\" ry=\"1\"/><path d=\"M16 4h2a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h2\"/></svg><svg xmlns=\"http://www.w3.org/2000/svg\" width=\"24\" height=\"24\" viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"2\" stroke-linecap=\"round\" stroke-linejoin=\"round\" class=\"check-icon\" style=\"display:none\"><path d=\"M20 6 9 17l-5-5\"/></svg></button></td>"
             ),
             "{html}"
         );
