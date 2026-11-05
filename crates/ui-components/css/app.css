@@ -227,6 +227,29 @@
 	color: var(--theme-primary-color);
 }
 
+/* Nameserver (⌕ A AAAA) query suffix in NS record rows. Mirrors the RDAP
+   query treatment: the magnifier stays primary-colored so the action
+   color belongs to the A/AAAA labels, which underline on hover. */
+.ns_query_suffix {
+	color: var(--theme-primary-color);
+	white-space: nowrap;
+}
+
+.ns_query_glyph {
+	color: var(--theme-primary-color);
+	margin-right: .15em;
+}
+
+.ns_query_link {
+	color: var(--theme-action-color);
+	text-decoration: underline;
+	cursor: pointer;
+}
+
+.ns_query_link:hover {
+	color: var(--theme-accent-color);
+}
+
 /* "Other Formats" download links (RPSL / JSON) in the result banner.
    In-page actions, so no underline (unlike the example links); the
    download itself is wired in the explorer template via event delegation

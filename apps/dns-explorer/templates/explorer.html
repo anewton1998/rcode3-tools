@@ -299,9 +299,19 @@
                 await this.lookup();
             },
 
+            // Run an A or AAAA query for a nameserver host name produced
+            // from an NS record's (⌕ A AAAA) suffix in the result panel.
+            async runNsQuery(name, recordType) {
+                if (this.busy) return;
+                this.query = name;
+                this.recordType = recordType;
+                await this.lookup();
+            },
+
             // Delegated click handler for the result panel. Copy buttons
-            // copy the IP to the clipboard; reverse-DNS links run in
-            // place; other links fall through to the download handler.
+            // copy the value to the clipboard; reverse-DNS links run a
+            // PTR lookup; nameserver query links run an A/AAAA lookup;
+            // other links fall through to the download handler.
             onResultClick(e) {
                 // Copy-to-clipboard buttons (rendered by the WASM
                 // address_value_html with data-copy-value).
@@ -329,6 +339,16 @@
                     }
                     e.preventDefault();
                     this.runReverseDns(reverse.dataset.reverseDnsQuery);
+                    return;
+                }
+                const nsQuery = e.target.closest('a[data-ns-query]');
+                if (nsQuery) {
+                    // Same modifier-click passthrough as reverse-DNS links.
+                    if (e.ctrlKey || e.metaKey || e.shiftKey || e.altKey || e.button !== 0) {
+                        return;
+                    }
+                    e.preventDefault();
+                    this.runNsQuery(nsQuery.dataset.nsQuery, nsQuery.dataset.nsQueryType);
                     return;
                 }
                 this.onFormatClick(e);

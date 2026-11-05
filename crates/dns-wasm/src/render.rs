@@ -149,6 +149,7 @@ fn record_block(record: &Record, received: DateTime<Utc>) -> String {
                     reverse_dns,
                     rdap_query_type,
                 } => address_value_html(&display, &reverse_dns, rdap_query_type),
+                RdataValue::Nameserver { display } => nameserver_value_html(&display),
             };
             rows.push(row_with_class(field.label, "wrap_value", value));
         }
@@ -174,7 +175,46 @@ fn address_value_html(display: &str, reverse_dns: &str, rdap_query_type: &str) -
         "{} {} {}",
         reverse_dns_link_html(display, reverse_dns),
         rdap_query_suffix_html(display, rdap_query_type),
-        copy_button_html(display)
+        copy_button_html(display, "IP")
+    )
+}
+
+/// Renders a nameserver name with its `A`/`AAAA` query links and a
+/// copy-to-clipboard button.
+///
+/// The visible name is plain text (not a link). The trailing
+/// `(⌕ A AAAA)` offers two in-page queries for the nameserver's address
+/// records, and the copy button carries `data-copy-value` so the
+/// explorer's delegated click handler can copy the name without Alpine
+/// processing `x-html` directives.
+fn nameserver_value_html(display: &str) -> String {
+    format!(
+        "{} {} {}",
+        escape(display),
+        nameserver_query_suffix_html(display),
+        copy_button_html(display, "nameserver")
+    )
+}
+
+/// Renders the `(⌕ A AAAA)` suffix for a nameserver value.
+///
+/// The magnifier is shared decorative chrome (`aria-hidden`); `A` and
+/// `AAAA` are separate clickable links that run in-page DNS queries for
+/// the nameserver's address records. Each link carries `data-ns-query`
+/// and `data-ns-query-type` so the explorer's delegated click handler
+/// can run the lookup in place while modifier-clicks fall through to the
+/// browser's open-in-new-tab behavior.
+///
+/// The href is HTML-escaped but not percent-encoded: nameserver names are
+/// `[a-z0-9.-]`, so the query string is already URL-safe.
+fn nameserver_query_suffix_html(display: &str) -> String {
+    let a_href = escape(&format!("?name={display}&type=A"));
+    let aaaa_href = escape(&format!("?name={display}&type=AAAA"));
+    let a_label = escape(&format!("Query A records for {display}"));
+    let aaaa_label = escape(&format!("Query AAAA records for {display}"));
+    let escaped = escape(display);
+    format!(
+        "<span class=\"ns_query_suffix\">(<span class=\"ns_query_glyph\" aria-hidden=\"true\">\u{2315}</span> <a class=\"ns_query_link\" href=\"{a_href}\" title=\"{a_label}\" aria-label=\"{a_label}\" data-ns-query=\"{escaped}\" data-ns-query-type=\"A\">A</a> <a class=\"ns_query_link\" href=\"{aaaa_href}\" title=\"{aaaa_label}\" aria-label=\"{aaaa_label}\" data-ns-query=\"{escaped}\" data-ns-query-type=\"AAAA\">AAAA</a>)</span>"
     )
 }
 
@@ -228,20 +268,23 @@ const COPY_ICON_SVG: &str = r#"<svg xmlns="http://www.w3.org/2000/svg" width="24
 /// style directly.
 const CHECK_ICON_SVG: &str = r#"<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="check-icon" style="display:none"><path d="M20 6 9 17l-5-5"/></svg>"#;
 
-/// Renders a copy-to-clipboard button for an IP address value.
+/// Renders a copy-to-clipboard button for a value.
 ///
 /// The button carries `data-copy-value` so the explorer's delegated
-/// click handler (`onResultClick`) can copy the address via the
+/// click handler (`onResultClick`) can copy the value via the
 /// `copyToClipboard` helper defined in `layout.html`. The copy icon
 /// swaps to a checkmark for two seconds on success, then swaps back.
+///
+/// `label` names the kind of value being copied (e.g. `"IP"`,
+/// `"nameserver"`) so the tooltip reads naturally.
 ///
 /// Unlike the `rdap-wasm` copy button (which uses inline Alpine
 /// directives), this button uses `data-copy-value` because the DNS
 /// explorer's result panel is rendered via `x-html`, where Alpine does
 /// not process directives in the inserted content.
-fn copy_button_html(value: &str) -> String {
+fn copy_button_html(value: &str, label: &str) -> String {
     format!(
-        "<button type=\"button\" class=\"copy_btn\" title=\"Copy IP to clipboard\" aria-label=\"Copy {escaped} to clipboard\" data-copy-value=\"{escaped}\">{COPY_ICON_SVG}{CHECK_ICON_SVG}</button>",
+        "<button type=\"button\" class=\"copy_btn\" title=\"Copy {label} to clipboard\" aria-label=\"Copy {escaped} to clipboard\" data-copy-value=\"{escaped}\">{COPY_ICON_SVG}{CHECK_ICON_SVG}</button>",
         escaped = escape(value),
     )
 }
@@ -295,7 +338,7 @@ fn escape(text: &str) -> String {
 mod tests {
     use super::*;
     use hickory_proto::rr::RData;
-    use hickory_proto::rr::rdata::{A, AAAA, MX, NAPTR, TXT};
+    use hickory_proto::rr::rdata::{A, AAAA, MX, NAPTR, NS, TXT};
     use std::net::{Ipv4Addr, Ipv6Addr};
 
     fn a_record(name: &str, ip: Ipv4Addr, ttl: u32) -> Record {
@@ -307,6 +350,14 @@ mod tests {
             name.parse().expect("name"),
             ttl,
             RData::AAAA(AAAA::from(ip)),
+        )
+    }
+
+    fn ns_record(name: &str, ns: &str, ttl: u32) -> Record {
+        Record::from_rdata(
+            name.parse().expect("name"),
+            ttl,
+            RData::NS(NS(ns.parse().expect("nameserver"))),
         )
     }
 
@@ -778,6 +829,30 @@ mod tests {
         assert!(
             html.contains(
                 "Address</td><td class=\"wrap_value\"><a class=\"reverse_dns_link mono_text\" href=\"?name=1.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.ip6.arpa&amp;type=PTR\" title=\"Query PTR for 1.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.ip6.arpa\" aria-label=\"Query PTR for 1.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.ip6.arpa\" data-reverse-dns-query=\"1.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.ip6.arpa\">::1</a> <span class=\"rdap_query_suffix\">(<a class=\"rdap_query_link\" href=\"../rdap-explorer?query=::1&amp;type=ip_v6_addr\" title=\"Query RDAP for ::1\" aria-label=\"Query RDAP for ::1\"><span class=\"rdap_query_glyph\" aria-hidden=\"true\">\u{2315}</span><span class=\"rdap_query_text\">RDAP</span></a>)</span> <button type=\"button\" class=\"copy_btn\" title=\"Copy IP to clipboard\" aria-label=\"Copy ::1 to clipboard\" data-copy-value=\"::1\"><svg xmlns=\"http://www.w3.org/2000/svg\" width=\"24\" height=\"24\" viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"2\" stroke-linecap=\"round\" stroke-linejoin=\"round\" class=\"copy-icon\"><rect width=\"8\" height=\"4\" x=\"8\" y=\"2\" rx=\"1\" ry=\"1\"/><path d=\"M16 4h2a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h2\"/></svg><svg xmlns=\"http://www.w3.org/2000/svg\" width=\"24\" height=\"24\" viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"2\" stroke-linecap=\"round\" stroke-linejoin=\"round\" class=\"check-icon\" style=\"display:none\"><path d=\"M20 6 9 17l-5-5\"/></svg></button></td>"
+            ),
+            "{html}"
+        );
+    }
+
+    #[test]
+    fn ns_record_renders_nameserver_query_links_and_copy_button() {
+        // GIVEN an NS record whose rdata is a nameserver host name
+        let mut message = Message::new(
+            26,
+            hickory_proto::op::MessageType::Response,
+            hickory_proto::op::OpCode::Query,
+        );
+        message.metadata.response_code = ResponseCode::NoError;
+        message.add_answer(ns_record("example.com.", "a.iana-servers.net.", 300));
+
+        // WHEN rendered
+        let html = render_message(&message, received());
+
+        // THEN the Nameserver cell renders the name (trailing dot stripped)
+        // followed by the (⌕ A AAAA) query suffix and a copy button.
+        assert!(
+            html.contains(
+                "Nameserver</td><td class=\"wrap_value\">a.iana-servers.net <span class=\"ns_query_suffix\">(<span class=\"ns_query_glyph\" aria-hidden=\"true\">\u{2315}</span> <a class=\"ns_query_link\" href=\"?name=a.iana-servers.net&amp;type=A\" title=\"Query A records for a.iana-servers.net\" aria-label=\"Query A records for a.iana-servers.net\" data-ns-query=\"a.iana-servers.net\" data-ns-query-type=\"A\">A</a> <a class=\"ns_query_link\" href=\"?name=a.iana-servers.net&amp;type=AAAA\" title=\"Query AAAA records for a.iana-servers.net\" aria-label=\"Query AAAA records for a.iana-servers.net\" data-ns-query=\"a.iana-servers.net\" data-ns-query-type=\"AAAA\">AAAA</a>)</span> <button type=\"button\" class=\"copy_btn\" title=\"Copy nameserver to clipboard\" aria-label=\"Copy a.iana-servers.net to clipboard\" data-copy-value=\"a.iana-servers.net\"><svg xmlns=\"http://www.w3.org/2000/svg\" width=\"24\" height=\"24\" viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"2\" stroke-linecap=\"round\" stroke-linejoin=\"round\" class=\"copy-icon\"><rect width=\"8\" height=\"4\" x=\"8\" y=\"2\" rx=\"1\" ry=\"1\"/><path d=\"M16 4h2a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h2\"/></svg><svg xmlns=\"http://www.w3.org/2000/svg\" width=\"24\" height=\"24\" viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"2\" stroke-linecap=\"round\" stroke-linejoin=\"round\" class=\"check-icon\" style=\"display:none\"><path d=\"M20 6 9 17l-5-5\"/></svg></button></td>"
             ),
             "{html}"
         );

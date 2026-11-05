@@ -26,6 +26,11 @@ pub(crate) enum RdataValue {
         /// RDAP Explorer query-type code for this address family.
         rdap_query_type: &'static str,
     },
+    /// A nameserver host name with `A`/`AAAA` query links and a copy button.
+    Nameserver {
+        /// Visible nameserver name (trailing dot stripped).
+        display: String,
+    },
 }
 
 /// One labeled field extracted from record data.
@@ -68,7 +73,7 @@ pub(crate) fn rdata_fields(rdata: &RData) -> Vec<RdataField> {
 
     match rdata {
         RData::CNAME(cname) => vec![text("Canonical Name", cname.to_string())],
-        RData::NS(ns) => vec![text("Nameserver", ns.to_string())],
+        RData::NS(ns) => vec![nameserver_field("Nameserver", ns.to_string())],
         RData::PTR(ptr) => vec![text("Domain Name", ptr.to_string())],
         RData::MX(mx) => vec![
             text("Preference", mx.preference.to_string()),
@@ -147,6 +152,17 @@ fn address_field(
             reverse_dns: reverse_dns.into(),
             rdap_query_type,
         },
+    }
+}
+
+/// Builds a nameserver field, stripping the trailing dot from the fully
+/// qualified name for display, copy and query use.
+fn nameserver_field(label: &'static str, value: impl Into<String>) -> RdataField {
+    let display = value.into();
+    let display = display.strip_suffix('.').unwrap_or(&display).to_string();
+    RdataField {
+        label,
+        value: RdataValue::Nameserver { display },
     }
 }
 
@@ -307,8 +323,50 @@ mod tests {
         // WHEN fields are extracted
         let fields = rdata_fields(&rdata);
 
-        // THEN there is one text Nameserver field.
-        assert_eq!(fields, vec![text("Nameserver", "ns1.example.")]);
+        // THEN there is one Nameserver field with the trailing dot stripped.
+        assert_eq!(
+            fields,
+            vec![RdataField {
+                label: "Nameserver",
+                value: RdataValue::Nameserver {
+                    display: "ns1.example".to_string()
+                }
+            }]
+        );
+    }
+
+    #[test]
+    fn rdata_fields_ns_strips_trailing_dot() {
+        // GIVEN an NS record whose name carries a trailing dot
+        let rdata = RData::NS(NS(name("a.iana-servers.net.")));
+
+        // WHEN fields are extracted
+        let fields = rdata_fields(&rdata);
+
+        // THEN the display name has no trailing dot.
+        assert_eq!(
+            fields[0].value,
+            RdataValue::Nameserver {
+                display: "a.iana-servers.net".to_string()
+            }
+        );
+    }
+
+    #[test]
+    fn rdata_fields_ns_without_trailing_dot_is_unchanged() {
+        // GIVEN an NS record whose name has no trailing dot
+        let rdata = RData::NS(NS(name("ns1.example")));
+
+        // WHEN fields are extracted
+        let fields = rdata_fields(&rdata);
+
+        // THEN the display name is unchanged.
+        assert_eq!(
+            fields[0].value,
+            RdataValue::Nameserver {
+                display: "ns1.example".to_string()
+            }
+        );
     }
 
     #[test]
