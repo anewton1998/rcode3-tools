@@ -195,6 +195,38 @@
 	color: var(--theme-accent-color);
 }
 
+/* RDAP query suffix rendered after A/AAAA address values. The whole
+   magnifier-plus-label is clickable, but only the RDAP word is underlined.
+   The magnifier stays primary-colored so the action color belongs to the
+   RDAP label itself. */
+.rdap_query_suffix {
+	color: var(--theme-primary-color);
+	white-space: nowrap;
+}
+
+.rdap_query_link {
+	color: var(--theme-action-color);
+	text-decoration: none;
+	cursor: pointer;
+}
+
+.rdap_query_link:hover {
+	color: var(--theme-accent-color);
+}
+
+.rdap_query_text {
+	text-decoration: underline;
+}
+
+.rdap_query_glyph {
+	color: var(--theme-primary-color);
+	margin-right: .15em;
+}
+
+.rdap_query_link:hover .rdap_query_glyph {
+	color: var(--theme-primary-color);
+}
+
 /* "Other Formats" download links (RPSL / JSON) in the result banner.
    In-page actions, so no underline (unlike the example links); the
    download itself is wired in the explorer template via event delegation

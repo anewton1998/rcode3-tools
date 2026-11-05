@@ -17,12 +17,14 @@ use icann_rdap_common::rdns::ip_to_reverse_dns;
 pub(crate) enum RdataValue {
     /// Normal-font text.
     Text(String),
-    /// A monospace IP address that can be queried as a reverse DNS PTR name.
-    ReverseDnsLink {
+    /// A monospace IP address with reverse-DNS and RDAP query affordances.
+    Address {
         /// Visible IP address text.
         display: String,
         /// Reverse DNS name to query for this address.
-        target: String,
+        reverse_dns: String,
+        /// RDAP Explorer query-type code for this address family.
+        rdap_query_type: &'static str,
     },
 }
 
@@ -35,15 +37,16 @@ pub(crate) struct RdataField {
     pub value: RdataValue,
 }
 
-/// Returns the IP address carried by an address record, if any.
+/// Returns the IP address and RDAP query type carried by an address record.
 ///
 /// This is intentionally pure and only understands the two address record
-/// types. It lets the renderer decide monospace styling from typed data
-/// instead of scanning rendered strings for IP-like tokens.
-pub(crate) fn ip_from_rdata(rdata: &RData) -> Option<IpAddr> {
+/// types. It lets the renderer decide monospace styling and the RDAP
+/// address query type from typed data instead of scanning rendered strings
+/// for IP-like tokens.
+fn address_from_rdata(rdata: &RData) -> Option<(IpAddr, &'static str)> {
     match rdata {
-        RData::A(A(ipv4)) => Some(IpAddr::V4(*ipv4)),
-        RData::AAAA(AAAA(ipv6)) => Some(IpAddr::V6(*ipv6)),
+        RData::A(A(ipv4)) => Some((IpAddr::V4(*ipv4), "ip_v4_addr")),
+        RData::AAAA(AAAA(ipv6)) => Some((IpAddr::V6(*ipv6), "ip_v6_addr")),
         _ => None,
     }
 }
@@ -54,11 +57,12 @@ pub(crate) fn ip_from_rdata(rdata: &RData) -> Option<IpAddr> {
 /// the fallback case and renders the record's string form as a single
 /// `Data` row.
 pub(crate) fn rdata_fields(rdata: &RData) -> Vec<RdataField> {
-    if let Some(ip) = ip_from_rdata(rdata) {
-        return vec![reverse_dns_link(
+    if let Some((ip, rdap_query_type)) = address_from_rdata(rdata) {
+        return vec![address_field(
             "Address",
             ip.to_string(),
             ip_to_reverse_dns(&ip),
+            rdap_query_type,
         )];
     }
 
@@ -130,16 +134,18 @@ fn text(label: &'static str, value: impl Into<String>) -> RdataField {
     }
 }
 
-fn reverse_dns_link(
+fn address_field(
     label: &'static str,
     display: impl Into<String>,
-    target: impl Into<String>,
+    reverse_dns: impl Into<String>,
+    rdap_query_type: &'static str,
 ) -> RdataField {
     RdataField {
         label,
-        value: RdataValue::ReverseDnsLink {
+        value: RdataValue::Address {
             display: display.into(),
-            target: target.into(),
+            reverse_dns: reverse_dns.into(),
+            rdap_query_type,
         },
     }
 }
@@ -168,69 +174,77 @@ mod tests {
     }
 
     #[test]
-    fn ip_from_rdata_returns_ipv4_for_a_record() {
+    fn address_from_rdata_returns_ipv4_and_rdap_type_for_a_record() {
         // GIVEN an A record's rdata
         let rdata = RData::A(A(Ipv4Addr::new(203, 0, 113, 7)));
 
-        // WHEN converted to an IP address
-        let ip = ip_from_rdata(&rdata);
+        // WHEN converted to an address and RDAP query type
+        let address = address_from_rdata(&rdata);
 
-        // THEN the IPv4 address is returned.
-        assert_eq!(ip, Some(IpAddr::V4(Ipv4Addr::new(203, 0, 113, 7))));
+        // THEN the IPv4 address and IPv4 RDAP query type are returned.
+        assert_eq!(
+            address,
+            Some((IpAddr::V4(Ipv4Addr::new(203, 0, 113, 7)), "ip_v4_addr"))
+        );
     }
 
     #[test]
-    fn ip_from_rdata_returns_ipv6_for_aaaa_record() {
+    fn address_from_rdata_returns_ipv6_and_rdap_type_for_aaaa_record() {
         // GIVEN an AAAA record's rdata
         let rdata = RData::AAAA(AAAA(Ipv6Addr::new(
             0x2606, 0x2800, 0x220, 0x1, 0x248, 0x1893, 0x25c6, 0x1970,
         )));
 
-        // WHEN converted to an IP address
-        let ip = ip_from_rdata(&rdata);
+        // WHEN converted to an address and RDAP query type
+        let address = address_from_rdata(&rdata);
 
-        // THEN the IPv6 address is returned.
+        // THEN the IPv6 address and IPv6 RDAP query type are returned.
         assert_eq!(
-            ip,
-            Some(IpAddr::V6(Ipv6Addr::new(
-                0x2606, 0x2800, 0x220, 0x1, 0x248, 0x1893, 0x25c6, 0x1970,
-            )))
+            address,
+            Some((
+                IpAddr::V6(Ipv6Addr::new(
+                    0x2606, 0x2800, 0x220, 0x1, 0x248, 0x1893, 0x25c6, 0x1970,
+                )),
+                "ip_v6_addr"
+            ))
         );
     }
 
     #[test]
-    fn ip_from_rdata_returns_none_for_non_address_record() {
+    fn address_from_rdata_returns_none_for_non_address_record() {
         // GIVEN a TXT record's rdata
         let rdata = RData::TXT(TXT::new(vec!["backup 198.51.100.3".to_string()]));
 
-        // WHEN converted to an IP address
-        let ip = ip_from_rdata(&rdata);
+        // WHEN converted to an address and RDAP query type
+        let address = address_from_rdata(&rdata);
 
         // THEN no IP address is inferred from the string content.
-        assert_eq!(ip, None);
+        assert_eq!(address, None);
     }
 
     #[test]
-    fn rdata_fields_a_returns_reverse_dns_link() {
+    fn rdata_fields_a_returns_address_with_reverse_dns_and_rdap_type() {
         // GIVEN an A record's rdata
         let rdata = RData::A(A(Ipv4Addr::new(93, 184, 216, 34)));
 
         // WHEN fields are extracted
         let fields = rdata_fields(&rdata);
 
-        // THEN there is one Address field carrying the reverse DNS target.
+        // THEN there is one Address field carrying the reverse DNS target
+        // and the IPv4 RDAP query type.
         assert_eq!(
             fields,
-            vec![reverse_dns_link(
+            vec![address_field(
                 "Address",
                 "93.184.216.34",
-                "34.216.184.93.in-addr.arpa"
+                "34.216.184.93.in-addr.arpa",
+                "ip_v4_addr"
             )]
         );
     }
 
     #[test]
-    fn rdata_fields_aaaa_returns_reverse_dns_link() {
+    fn rdata_fields_aaaa_returns_address_with_reverse_dns_and_rdap_type() {
         // GIVEN an AAAA record's rdata
         let rdata = RData::AAAA(AAAA(Ipv6Addr::new(
             0x2606, 0x2800, 0x220, 0x1, 0x248, 0x1893, 0x25c6, 0x1970,
@@ -239,13 +253,15 @@ mod tests {
         // WHEN fields are extracted
         let fields = rdata_fields(&rdata);
 
-        // THEN there is one Address field carrying the IPv6 reverse DNS target.
+        // THEN there is one Address field carrying the IPv6 reverse DNS
+        // target and the IPv6 RDAP query type.
         assert_eq!(
             fields,
-            vec![reverse_dns_link(
+            vec![address_field(
                 "Address",
                 "2606:2800:220:1:248:1893:25c6:1970",
-                "0.7.9.1.6.c.5.2.3.9.8.1.8.4.2.0.1.0.0.0.0.2.2.0.0.0.8.2.6.0.6.2.ip6.arpa"
+                "0.7.9.1.6.c.5.2.3.9.8.1.8.4.2.0.1.0.0.0.0.2.2.0.0.0.8.2.6.0.6.2.ip6.arpa",
+                "ip_v6_addr"
             )]
         );
     }
@@ -259,13 +275,14 @@ mod tests {
         let fields = rdata_fields(&rdata);
 
         // THEN the visible address stays compressed while the PTR target is
-        // the full reverse name.
+        // the full reverse name and the RDAP query remains address-based.
         assert_eq!(
             fields,
-            vec![reverse_dns_link(
+            vec![address_field(
                 "Address",
                 "::1",
-                "1.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.ip6.arpa"
+                "1.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.ip6.arpa",
+                "ip_v6_addr"
             )]
         );
     }
