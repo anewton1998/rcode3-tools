@@ -150,7 +150,12 @@ fn record_block(record: &Record, received: DateTime<Utc>) -> String {
                     rdap_query_type,
                 } => address_value_html(&display, &reverse_dns, rdap_query_type),
                 RdataValue::Nameserver { display } => nameserver_value_html(&display),
-                RdataValue::CanonicalName { display } => cname_value_html(&display),
+                RdataValue::CanonicalName { display } => {
+                    host_query_value_html(&display, "canonical name")
+                }
+                RdataValue::DomainName { display } => {
+                    host_query_value_html(&display, "domain name")
+                }
             };
             rows.push(row_with_class(field.label, "wrap_value", value));
         }
@@ -234,30 +239,33 @@ fn nameserver_query_suffix_html(display: &str) -> String {
     )
 }
 
-/// Renders a CNAME canonical target with its `A`/`AAAA` query links and a
-/// copy-to-clipboard button.
+/// Renders the `(⌕ A AAAA)` query suffix (shared magnifier plus the
+/// shared `A`/`AAAA` links) for a host name that has no RDAP affordance.
 ///
-/// Mirrors the nameserver treatment minus the RDAP link: the visible
-/// canonical name is plain text, the trailing `(⌕ A AAAA)` offers two
-/// in-page queries for the target's address records, and the copy button
-/// carries `data-copy-value` for the explorer's delegated handler.
-fn cname_value_html(display: &str) -> String {
-    format!(
-        "{} {} {}",
-        escape(display),
-        cname_query_suffix_html(display),
-        copy_button_html(display, "canonical name")
-    )
-}
-
-/// Renders the `(⌕ A AAAA)` suffix for a CNAME canonical target.
-///
-/// Same shared magnifier and `A`/`AAAA` links as the nameserver suffix,
-/// without the RDAP link.
-fn cname_query_suffix_html(display: &str) -> String {
+/// Used by CNAME canonical targets and PTR domain names. The nameserver
+/// suffix wraps the same links but appends its own RDAP link.
+fn dns_query_suffix_html(display: &str) -> String {
     format!(
         "<span class=\"ns_query_suffix\">(<span class=\"ns_query_glyph\" aria-hidden=\"true\">\u{2315}</span> {})</span>",
         dns_query_links_html(display)
+    )
+}
+
+/// Renders a host name with its `(⌕ A AAAA)` query links and a
+/// copy-to-clipboard button.
+///
+/// Used by CNAME canonical targets and PTR domain names: the visible name
+/// is plain text, the trailing `(⌕ A AAAA)` offers two in-page queries
+/// for the host's address records, and the copy button carries
+/// `data-copy-value` for the explorer's delegated handler. `copy_label`
+/// names the kind of value (e.g. `"canonical name"`, `"domain name"`) so
+/// the tooltip reads naturally.
+fn host_query_value_html(display: &str, copy_label: &str) -> String {
+    format!(
+        "{} {} {}",
+        escape(display),
+        dns_query_suffix_html(display),
+        copy_button_html(display, copy_label)
     )
 }
 
@@ -381,7 +389,7 @@ fn escape(text: &str) -> String {
 mod tests {
     use super::*;
     use hickory_proto::rr::RData;
-    use hickory_proto::rr::rdata::{A, AAAA, CNAME, MX, NAPTR, NS, TXT};
+    use hickory_proto::rr::rdata::{A, AAAA, CNAME, MX, NAPTR, NS, PTR, TXT};
     use std::net::{Ipv4Addr, Ipv6Addr};
 
     fn a_record(name: &str, ip: Ipv4Addr, ttl: u32) -> Record {
@@ -409,6 +417,14 @@ mod tests {
             name.parse().expect("name"),
             ttl,
             RData::CNAME(CNAME(target.parse().expect("canonical target"))),
+        )
+    }
+
+    fn ptr_record(name: &str, domain: &str, ttl: u32) -> Record {
+        Record::from_rdata(
+            name.parse().expect("name"),
+            ttl,
+            RData::PTR(PTR(domain.parse().expect("domain name"))),
         )
     }
 
@@ -939,6 +955,39 @@ mod tests {
         assert!(
             !html.contains("type=nameserver"),
             "CNAME suffix must not carry an RDAP nameserver link: {html}"
+        );
+    }
+
+    #[test]
+    fn ptr_record_renders_domain_name_query_links_and_copy_button() {
+        // GIVEN a PTR record whose rdata is a domain name
+        let mut message = Message::new(
+            28,
+            hickory_proto::op::MessageType::Response,
+            hickory_proto::op::OpCode::Query,
+        );
+        message.metadata.response_code = ResponseCode::NoError;
+        message.add_answer(ptr_record(
+            "34.216.184.93.in-addr.arpa.",
+            "host.example.com.",
+            300,
+        ));
+
+        // WHEN rendered
+        let html = render_message(&message, received());
+
+        // THEN the Domain Name cell renders the name (trailing dot stripped)
+        // followed by the (⌕ A AAAA) query suffix and a copy button — and
+        // no RDAP link.
+        assert!(
+            html.contains(
+                "Domain Name</td><td class=\"wrap_value\">host.example.com <span class=\"ns_query_suffix\">(<span class=\"ns_query_glyph\" aria-hidden=\"true\">\u{2315}</span> <a class=\"ns_query_link\" href=\"?name=host.example.com&amp;type=A\" title=\"Query A records for host.example.com\" aria-label=\"Query A records for host.example.com\" data-ns-query=\"host.example.com\" data-ns-query-type=\"A\">A</a> <a class=\"ns_query_link\" href=\"?name=host.example.com&amp;type=AAAA\" title=\"Query AAAA records for host.example.com\" aria-label=\"Query AAAA records for host.example.com\" data-ns-query=\"host.example.com\" data-ns-query-type=\"AAAA\">AAAA</a>)</span> <button type=\"button\" class=\"copy_btn\" title=\"Copy domain name to clipboard\" aria-label=\"Copy host.example.com to clipboard\" data-copy-value=\"host.example.com\"><svg xmlns=\"http://www.w3.org/2000/svg\" width=\"24\" height=\"24\" viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"2\" stroke-linecap=\"round\" stroke-linejoin=\"round\" class=\"copy-icon\"><rect width=\"8\" height=\"4\" x=\"8\" y=\"2\" rx=\"1\" ry=\"1\"/><path d=\"M16 4h2a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h2\"/></svg><svg xmlns=\"http://www.w3.org/2000/svg\" width=\"24\" height=\"24\" viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"2\" stroke-linecap=\"round\" stroke-linejoin=\"round\" class=\"check-icon\" style=\"display:none\"><path d=\"M20 6 9 17l-5-5\"/></svg></button></td>"
+            ),
+            "{html}"
+        );
+        assert!(
+            !html.contains("type=nameserver"),
+            "PTR suffix must not carry an RDAP nameserver link: {html}"
         );
     }
 

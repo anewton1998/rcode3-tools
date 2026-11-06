@@ -36,6 +36,11 @@ pub(crate) enum RdataValue {
         /// Visible canonical name (trailing dot stripped).
         display: String,
     },
+    /// A PTR record's domain name with `A`/`AAAA` query links and a copy button.
+    DomainName {
+        /// Visible domain name (trailing dot stripped).
+        display: String,
+    },
 }
 
 /// One labeled field extracted from record data.
@@ -79,7 +84,7 @@ pub(crate) fn rdata_fields(rdata: &RData) -> Vec<RdataField> {
     match rdata {
         RData::CNAME(cname) => vec![canonical_name_field("Canonical Name", cname.to_string())],
         RData::NS(ns) => vec![nameserver_field("Nameserver", ns.to_string())],
-        RData::PTR(ptr) => vec![text("Domain Name", ptr.to_string())],
+        RData::PTR(ptr) => vec![domain_name_field("Domain Name", ptr.to_string())],
         RData::MX(mx) => vec![
             text("Preference", mx.preference.to_string()),
             text("Exchange", mx.exchange.to_string()),
@@ -179,6 +184,17 @@ fn canonical_name_field(label: &'static str, value: impl Into<String>) -> RdataF
     RdataField {
         label,
         value: RdataValue::CanonicalName { display },
+    }
+}
+
+/// Builds a PTR domain-name field, stripping the trailing dot from the
+/// fully qualified name for display, copy and query use.
+fn domain_name_field(label: &'static str, value: impl Into<String>) -> RdataField {
+    let display = value.into();
+    let display = display.strip_suffix('.').unwrap_or(&display).to_string();
+    RdataField {
+        label,
+        value: RdataValue::DomainName { display },
     }
 }
 
@@ -401,8 +417,16 @@ mod tests {
         // WHEN fields are extracted
         let fields = rdata_fields(&rdata);
 
-        // THEN there is one text Domain Name field.
-        assert_eq!(fields, vec![text("Domain Name", "host.example.")]);
+        // THEN there is one Domain Name field with the trailing dot stripped.
+        assert_eq!(
+            fields,
+            vec![RdataField {
+                label: "Domain Name",
+                value: RdataValue::DomainName {
+                    display: "host.example".to_string()
+                }
+            }]
+        );
     }
 
     #[test]
