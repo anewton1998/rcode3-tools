@@ -162,6 +162,7 @@ fn record_block(record: &Record, received: DateTime<Utc>) -> String {
                 RdataValue::PrimaryServer { display } => {
                     ns_query_value_html(&display, "primary server")
                 }
+                RdataValue::ServiceTarget { display } => host_query_value_html(&display, "target"),
             };
             rows.push(row_with_class(field.label, "wrap_value", value));
         }
@@ -397,7 +398,7 @@ fn escape(text: &str) -> String {
 mod tests {
     use super::*;
     use hickory_proto::rr::RData;
-    use hickory_proto::rr::rdata::{A, AAAA, CNAME, MX, NAPTR, NS, PTR, SOA, TXT};
+    use hickory_proto::rr::rdata::{A, AAAA, CNAME, MX, NAPTR, NS, PTR, SOA, SRV, TXT};
     use std::net::{Ipv4Addr, Ipv6Addr};
 
     fn a_record(name: &str, ip: Ipv4Addr, ttl: u32) -> Record {
@@ -449,6 +450,14 @@ mod tests {
                 1209600,
                 3600,
             )),
+        )
+    }
+
+    fn srv_record(name: &str, target: &str, ttl: u32) -> Record {
+        Record::from_rdata(
+            name.parse().expect("name"),
+            ttl,
+            RData::SRV(SRV::new(10, 20, 443, target.parse().expect("target"))),
         )
     }
 
@@ -1042,6 +1051,39 @@ mod tests {
                 "Primary Server</td><td class=\"wrap_value\">ns1.example.com <span class=\"ns_query_suffix\">(<span class=\"ns_query_glyph\" aria-hidden=\"true\">\u{2315}</span> <a class=\"ns_query_link\" href=\"?name=ns1.example.com&amp;type=A\" title=\"Query A records for ns1.example.com\" aria-label=\"Query A records for ns1.example.com\" data-ns-query=\"ns1.example.com\" data-ns-query-type=\"A\">A</a> <a class=\"ns_query_link\" href=\"?name=ns1.example.com&amp;type=AAAA\" title=\"Query AAAA records for ns1.example.com\" aria-label=\"Query AAAA records for ns1.example.com\" data-ns-query=\"ns1.example.com\" data-ns-query-type=\"AAAA\">AAAA</a> <a class=\"ns_query_link\" href=\"../rdap-explorer?query=ns1.example.com&amp;type=nameserver\" title=\"Query RDAP for ns1.example.com\" aria-label=\"Query RDAP for ns1.example.com\">RDAP</a>)</span> <button type=\"button\" class=\"copy_btn\" title=\"Copy primary server to clipboard\" aria-label=\"Copy ns1.example.com to clipboard\" data-copy-value=\"ns1.example.com\"><svg xmlns=\"http://www.w3.org/2000/svg\" width=\"24\" height=\"24\" viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"2\" stroke-linecap=\"round\" stroke-linejoin=\"round\" class=\"copy-icon\"><rect width=\"8\" height=\"4\" x=\"8\" y=\"2\" rx=\"1\" ry=\"1\"/><path d=\"M16 4h2a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h2\"/></svg><svg xmlns=\"http://www.w3.org/2000/svg\" width=\"24\" height=\"24\" viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"2\" stroke-linecap=\"round\" stroke-linejoin=\"round\" class=\"check-icon\" style=\"display:none\"><path d=\"M20 6 9 17l-5-5\"/></svg></button></td>"
             ),
             "{html}"
+        );
+    }
+
+    #[test]
+    fn srv_record_renders_target_query_links_and_copy_button() {
+        // GIVEN an SRV record whose target is a host name
+        let mut message = Message::new(
+            30,
+            hickory_proto::op::MessageType::Response,
+            hickory_proto::op::OpCode::Query,
+        );
+        message.metadata.response_code = ResponseCode::NoError;
+        message.add_answer(srv_record(
+            "_https._tcp.example.com.",
+            "svc.example.com.",
+            300,
+        ));
+
+        // WHEN rendered
+        let html = render_message(&message, received());
+
+        // THEN the Target cell renders the host (trailing dot stripped)
+        // followed by the (⌕ A AAAA) query suffix and a copy button — and
+        // no RDAP link.
+        assert!(
+            html.contains(
+                "Target</td><td class=\"wrap_value\">svc.example.com <span class=\"ns_query_suffix\">(<span class=\"ns_query_glyph\" aria-hidden=\"true\">\u{2315}</span> <a class=\"ns_query_link\" href=\"?name=svc.example.com&amp;type=A\" title=\"Query A records for svc.example.com\" aria-label=\"Query A records for svc.example.com\" data-ns-query=\"svc.example.com\" data-ns-query-type=\"A\">A</a> <a class=\"ns_query_link\" href=\"?name=svc.example.com&amp;type=AAAA\" title=\"Query AAAA records for svc.example.com\" aria-label=\"Query AAAA records for svc.example.com\" data-ns-query=\"svc.example.com\" data-ns-query-type=\"AAAA\">AAAA</a>)</span> <button type=\"button\" class=\"copy_btn\" title=\"Copy target to clipboard\" aria-label=\"Copy svc.example.com to clipboard\" data-copy-value=\"svc.example.com\"><svg xmlns=\"http://www.w3.org/2000/svg\" width=\"24\" height=\"24\" viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"2\" stroke-linecap=\"round\" stroke-linejoin=\"round\" class=\"copy-icon\"><rect width=\"8\" height=\"4\" x=\"8\" y=\"2\" rx=\"1\" ry=\"1\"/><path d=\"M16 4h2a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h2\"/></svg><svg xmlns=\"http://www.w3.org/2000/svg\" width=\"24\" height=\"24\" viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"2\" stroke-linecap=\"round\" stroke-linejoin=\"round\" class=\"check-icon\" style=\"display:none\"><path d=\"M20 6 9 17l-5-5\"/></svg></button></td>"
+            ),
+            "{html}"
+        );
+        assert!(
+            !html.contains("type=nameserver"),
+            "SRV suffix must not carry an RDAP nameserver link: {html}"
         );
     }
 

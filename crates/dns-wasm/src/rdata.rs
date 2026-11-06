@@ -53,6 +53,12 @@ pub(crate) enum RdataValue {
         /// Visible primary server host (trailing dot stripped).
         display: String,
     },
+    /// An SRV record's target host with `A`/`AAAA` query links and a copy
+    /// button.
+    ServiceTarget {
+        /// Visible target host (trailing dot stripped).
+        display: String,
+    },
 }
 
 /// One labeled field extracted from record data.
@@ -114,7 +120,7 @@ pub(crate) fn rdata_fields(rdata: &RData) -> Vec<RdataField> {
             text("Priority", srv.priority.to_string()),
             text("Weight", srv.weight.to_string()),
             text("Port", srv.port.to_string()),
-            text("Target", srv.target.to_string()),
+            service_target_field("Target", srv.target.to_string()),
         ],
         RData::CAA(caa) => vec![
             text("Issuer Critical", caa.issuer_critical.to_string()),
@@ -229,6 +235,17 @@ fn primary_server_field(label: &'static str, value: impl Into<String>) -> RdataF
     RdataField {
         label,
         value: RdataValue::PrimaryServer { display },
+    }
+}
+
+/// Builds an SRV target field, stripping the trailing dot from the fully
+/// qualified host for display, copy and query use.
+fn service_target_field(label: &'static str, value: impl Into<String>) -> RdataField {
+    let display = value.into();
+    let display = display.strip_suffix('.').unwrap_or(&display).to_string();
+    RdataField {
+        label,
+        value: RdataValue::ServiceTarget { display },
     }
 }
 
@@ -532,14 +549,20 @@ mod tests {
         // WHEN fields are extracted
         let fields = rdata_fields(&rdata);
 
-        // THEN priority, weight, port and target are separate fields.
+        // THEN priority, weight and port are plain text and the target is a
+        // ServiceTarget field with the trailing dot stripped.
         assert_eq!(
             fields,
             vec![
                 text("Priority", "10"),
                 text("Weight", "20"),
                 text("Port", "443"),
-                text("Target", "svc.example."),
+                RdataField {
+                    label: "Target",
+                    value: RdataValue::ServiceTarget {
+                        display: "svc.example".to_string()
+                    }
+                },
             ]
         );
     }
