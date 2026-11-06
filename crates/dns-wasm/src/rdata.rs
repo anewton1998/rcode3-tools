@@ -31,6 +31,11 @@ pub(crate) enum RdataValue {
         /// Visible nameserver name (trailing dot stripped).
         display: String,
     },
+    /// A CNAME canonical target with `A`/`AAAA` query links and a copy button.
+    CanonicalName {
+        /// Visible canonical name (trailing dot stripped).
+        display: String,
+    },
 }
 
 /// One labeled field extracted from record data.
@@ -72,7 +77,7 @@ pub(crate) fn rdata_fields(rdata: &RData) -> Vec<RdataField> {
     }
 
     match rdata {
-        RData::CNAME(cname) => vec![text("Canonical Name", cname.to_string())],
+        RData::CNAME(cname) => vec![canonical_name_field("Canonical Name", cname.to_string())],
         RData::NS(ns) => vec![nameserver_field("Nameserver", ns.to_string())],
         RData::PTR(ptr) => vec![text("Domain Name", ptr.to_string())],
         RData::MX(mx) => vec![
@@ -163,6 +168,17 @@ fn nameserver_field(label: &'static str, value: impl Into<String>) -> RdataField
     RdataField {
         label,
         value: RdataValue::Nameserver { display },
+    }
+}
+
+/// Builds a canonical-name field, stripping the trailing dot from the
+/// fully qualified name for display, copy and query use.
+fn canonical_name_field(label: &'static str, value: impl Into<String>) -> RdataField {
+    let display = value.into();
+    let display = display.strip_suffix('.').unwrap_or(&display).to_string();
+    RdataField {
+        label,
+        value: RdataValue::CanonicalName { display },
     }
 }
 
@@ -311,8 +327,16 @@ mod tests {
         // WHEN fields are extracted
         let fields = rdata_fields(&rdata);
 
-        // THEN there is one text Canonical Name field.
-        assert_eq!(fields, vec![text("Canonical Name", "target.example.")]);
+        // THEN there is one Canonical Name field with the trailing dot stripped.
+        assert_eq!(
+            fields,
+            vec![RdataField {
+                label: "Canonical Name",
+                value: RdataValue::CanonicalName {
+                    display: "target.example".to_string()
+                }
+            }]
+        );
     }
 
     #[test]

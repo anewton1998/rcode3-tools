@@ -150,6 +150,7 @@ fn record_block(record: &Record, received: DateTime<Utc>) -> String {
                     rdap_query_type,
                 } => address_value_html(&display, &reverse_dns, rdap_query_type),
                 RdataValue::Nameserver { display } => nameserver_value_html(&display),
+                RdataValue::CanonicalName { display } => cname_value_html(&display),
             };
             rows.push(row_with_class(field.label, "wrap_value", value));
         }
@@ -196,28 +197,67 @@ fn nameserver_value_html(display: &str) -> String {
     )
 }
 
+/// Renders the shared `A`/`AAAA` in-page DNS query links for a host name.
+///
+/// Both the nameserver and CNAME canonical-name suffixes reuse these links:
+/// each runs an in-page lookup for the host's address records via the
+/// explorer's delegated `runNsQuery` handler (the `ns` attribute naming is
+/// historical; the handler is a generic "query this name for this record
+/// type"). Modifier-clicks fall through to the browser's open-in-new-tab
+/// behavior.
+fn dns_query_links_html(display: &str) -> String {
+    let a_href = escape(&format!("?name={display}&type=A"));
+    let aaaa_href = escape(&format!("?name={display}&type=AAAA"));
+    let a_label = escape(&format!("Query A records for {display}"));
+    let aaaa_label = escape(&format!("Query AAAA records for {display}"));
+    let escaped = escape(display);
+    format!(
+        "<a class=\"ns_query_link\" href=\"{a_href}\" title=\"{a_label}\" aria-label=\"{a_label}\" data-ns-query=\"{escaped}\" data-ns-query-type=\"A\">A</a> <a class=\"ns_query_link\" href=\"{aaaa_href}\" title=\"{aaaa_label}\" aria-label=\"{aaaa_label}\" data-ns-query=\"{escaped}\" data-ns-query-type=\"AAAA\">AAAA</a>"
+    )
+}
+
 /// Renders the `(⌕ A AAAA RDAP)` suffix for a nameserver value.
 ///
 /// The magnifier is shared decorative chrome (`aria-hidden`); `A` and
-/// `AAAA` are in-page DNS queries carrying `data-ns-query` /
-/// `data-ns-query-type` for the explorer's delegated click handler,
-/// while `RDAP` is a cross-app navigation link to the RDAP Explorer
-/// using the `nameserver` query type. Modifier-clicks on the DNS links
-/// fall through to the browser's open-in-new-tab behavior; the RDAP
-/// link always navigates.
+/// `AAAA` are the shared in-page DNS query links, while `RDAP` is a
+/// cross-app navigation link to the RDAP Explorer using the `nameserver`
+/// query type. The RDAP link always navigates.
 ///
 /// The href is HTML-escaped but not percent-encoded: nameserver names are
 /// `[a-z0-9.-]`, so the query string is already URL-safe.
 fn nameserver_query_suffix_html(display: &str) -> String {
-    let a_href = escape(&format!("?name={display}&type=A"));
-    let aaaa_href = escape(&format!("?name={display}&type=AAAA"));
     let rdap_href = escape(&format!("../rdap-explorer?query={display}&type=nameserver"));
-    let a_label = escape(&format!("Query A records for {display}"));
-    let aaaa_label = escape(&format!("Query AAAA records for {display}"));
     let rdap_label = escape(&format!("Query RDAP for {display}"));
-    let escaped = escape(display);
     format!(
-        "<span class=\"ns_query_suffix\">(<span class=\"ns_query_glyph\" aria-hidden=\"true\">\u{2315}</span> <a class=\"ns_query_link\" href=\"{a_href}\" title=\"{a_label}\" aria-label=\"{a_label}\" data-ns-query=\"{escaped}\" data-ns-query-type=\"A\">A</a> <a class=\"ns_query_link\" href=\"{aaaa_href}\" title=\"{aaaa_label}\" aria-label=\"{aaaa_label}\" data-ns-query=\"{escaped}\" data-ns-query-type=\"AAAA\">AAAA</a> <a class=\"ns_query_link\" href=\"{rdap_href}\" title=\"{rdap_label}\" aria-label=\"{rdap_label}\">RDAP</a>)</span>"
+        "<span class=\"ns_query_suffix\">(<span class=\"ns_query_glyph\" aria-hidden=\"true\">\u{2315}</span> {} <a class=\"ns_query_link\" href=\"{rdap_href}\" title=\"{rdap_label}\" aria-label=\"{rdap_label}\">RDAP</a>)</span>",
+        dns_query_links_html(display)
+    )
+}
+
+/// Renders a CNAME canonical target with its `A`/`AAAA` query links and a
+/// copy-to-clipboard button.
+///
+/// Mirrors the nameserver treatment minus the RDAP link: the visible
+/// canonical name is plain text, the trailing `(⌕ A AAAA)` offers two
+/// in-page queries for the target's address records, and the copy button
+/// carries `data-copy-value` for the explorer's delegated handler.
+fn cname_value_html(display: &str) -> String {
+    format!(
+        "{} {} {}",
+        escape(display),
+        cname_query_suffix_html(display),
+        copy_button_html(display, "canonical name")
+    )
+}
+
+/// Renders the `(⌕ A AAAA)` suffix for a CNAME canonical target.
+///
+/// Same shared magnifier and `A`/`AAAA` links as the nameserver suffix,
+/// without the RDAP link.
+fn cname_query_suffix_html(display: &str) -> String {
+    format!(
+        "<span class=\"ns_query_suffix\">(<span class=\"ns_query_glyph\" aria-hidden=\"true\">\u{2315}</span> {})</span>",
+        dns_query_links_html(display)
     )
 }
 
@@ -341,7 +381,7 @@ fn escape(text: &str) -> String {
 mod tests {
     use super::*;
     use hickory_proto::rr::RData;
-    use hickory_proto::rr::rdata::{A, AAAA, MX, NAPTR, NS, TXT};
+    use hickory_proto::rr::rdata::{A, AAAA, CNAME, MX, NAPTR, NS, TXT};
     use std::net::{Ipv4Addr, Ipv6Addr};
 
     fn a_record(name: &str, ip: Ipv4Addr, ttl: u32) -> Record {
@@ -361,6 +401,14 @@ mod tests {
             name.parse().expect("name"),
             ttl,
             RData::NS(NS(ns.parse().expect("nameserver"))),
+        )
+    }
+
+    fn cname_record(name: &str, target: &str, ttl: u32) -> Record {
+        Record::from_rdata(
+            name.parse().expect("name"),
+            ttl,
+            RData::CNAME(CNAME(target.parse().expect("canonical target"))),
         )
     }
 
@@ -858,6 +906,39 @@ mod tests {
                 "Nameserver</td><td class=\"wrap_value\">a.iana-servers.net <span class=\"ns_query_suffix\">(<span class=\"ns_query_glyph\" aria-hidden=\"true\">\u{2315}</span> <a class=\"ns_query_link\" href=\"?name=a.iana-servers.net&amp;type=A\" title=\"Query A records for a.iana-servers.net\" aria-label=\"Query A records for a.iana-servers.net\" data-ns-query=\"a.iana-servers.net\" data-ns-query-type=\"A\">A</a> <a class=\"ns_query_link\" href=\"?name=a.iana-servers.net&amp;type=AAAA\" title=\"Query AAAA records for a.iana-servers.net\" aria-label=\"Query AAAA records for a.iana-servers.net\" data-ns-query=\"a.iana-servers.net\" data-ns-query-type=\"AAAA\">AAAA</a> <a class=\"ns_query_link\" href=\"../rdap-explorer?query=a.iana-servers.net&amp;type=nameserver\" title=\"Query RDAP for a.iana-servers.net\" aria-label=\"Query RDAP for a.iana-servers.net\">RDAP</a>)</span> <button type=\"button\" class=\"copy_btn\" title=\"Copy nameserver to clipboard\" aria-label=\"Copy a.iana-servers.net to clipboard\" data-copy-value=\"a.iana-servers.net\"><svg xmlns=\"http://www.w3.org/2000/svg\" width=\"24\" height=\"24\" viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"2\" stroke-linecap=\"round\" stroke-linejoin=\"round\" class=\"copy-icon\"><rect width=\"8\" height=\"4\" x=\"8\" y=\"2\" rx=\"1\" ry=\"1\"/><path d=\"M16 4h2a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h2\"/></svg><svg xmlns=\"http://www.w3.org/2000/svg\" width=\"24\" height=\"24\" viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"2\" stroke-linecap=\"round\" stroke-linejoin=\"round\" class=\"check-icon\" style=\"display:none\"><path d=\"M20 6 9 17l-5-5\"/></svg></button></td>"
             ),
             "{html}"
+        );
+    }
+
+    #[test]
+    fn cname_record_renders_canonical_name_query_links_and_copy_button() {
+        // GIVEN a CNAME record whose rdata is a canonical target name
+        let mut message = Message::new(
+            27,
+            hickory_proto::op::MessageType::Response,
+            hickory_proto::op::OpCode::Query,
+        );
+        message.metadata.response_code = ResponseCode::NoError;
+        message.add_answer(cname_record(
+            "alias.example.com.",
+            "target.example.com.",
+            300,
+        ));
+
+        // WHEN rendered
+        let html = render_message(&message, received());
+
+        // THEN the Canonical Name cell renders the target (trailing dot
+        // stripped) followed by the (⌕ A AAAA) query suffix and a copy
+        // button — and no RDAP link.
+        assert!(
+            html.contains(
+                "Canonical Name</td><td class=\"wrap_value\">target.example.com <span class=\"ns_query_suffix\">(<span class=\"ns_query_glyph\" aria-hidden=\"true\">\u{2315}</span> <a class=\"ns_query_link\" href=\"?name=target.example.com&amp;type=A\" title=\"Query A records for target.example.com\" aria-label=\"Query A records for target.example.com\" data-ns-query=\"target.example.com\" data-ns-query-type=\"A\">A</a> <a class=\"ns_query_link\" href=\"?name=target.example.com&amp;type=AAAA\" title=\"Query AAAA records for target.example.com\" aria-label=\"Query AAAA records for target.example.com\" data-ns-query=\"target.example.com\" data-ns-query-type=\"AAAA\">AAAA</a>)</span> <button type=\"button\" class=\"copy_btn\" title=\"Copy canonical name to clipboard\" aria-label=\"Copy target.example.com to clipboard\" data-copy-value=\"target.example.com\"><svg xmlns=\"http://www.w3.org/2000/svg\" width=\"24\" height=\"24\" viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"2\" stroke-linecap=\"round\" stroke-linejoin=\"round\" class=\"copy-icon\"><rect width=\"8\" height=\"4\" x=\"8\" y=\"2\" rx=\"1\" ry=\"1\"/><path d=\"M16 4h2a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h2\"/></svg><svg xmlns=\"http://www.w3.org/2000/svg\" width=\"24\" height=\"24\" viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"2\" stroke-linecap=\"round\" stroke-linejoin=\"round\" class=\"check-icon\" style=\"display:none\"><path d=\"M20 6 9 17l-5-5\"/></svg></button></td>"
+            ),
+            "{html}"
+        );
+        assert!(
+            !html.contains("type=nameserver"),
+            "CNAME suffix must not carry an RDAP nameserver link: {html}"
         );
     }
 
