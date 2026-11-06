@@ -41,6 +41,12 @@ pub(crate) enum RdataValue {
         /// Visible domain name (trailing dot stripped).
         display: String,
     },
+    /// An MX record's mail exchanger host with `A`/`AAAA` query links and a
+    /// copy button.
+    MailExchange {
+        /// Visible mail exchanger host (trailing dot stripped).
+        display: String,
+    },
 }
 
 /// One labeled field extracted from record data.
@@ -87,7 +93,7 @@ pub(crate) fn rdata_fields(rdata: &RData) -> Vec<RdataField> {
         RData::PTR(ptr) => vec![domain_name_field("Domain Name", ptr.to_string())],
         RData::MX(mx) => vec![
             text("Preference", mx.preference.to_string()),
-            text("Exchange", mx.exchange.to_string()),
+            mail_exchange_field("Exchange", mx.exchange.to_string()),
         ],
         RData::SOA(soa) => vec![
             text("Primary Server", soa.mname.to_string()),
@@ -195,6 +201,17 @@ fn domain_name_field(label: &'static str, value: impl Into<String>) -> RdataFiel
     RdataField {
         label,
         value: RdataValue::DomainName { display },
+    }
+}
+
+/// Builds a mail-exchanger field, stripping the trailing dot from the
+/// fully qualified host for display, copy and query use.
+fn mail_exchange_field(label: &'static str, value: impl Into<String>) -> RdataField {
+    let display = value.into();
+    let display = display.strip_suffix('.').unwrap_or(&display).to_string();
+    RdataField {
+        label,
+        value: RdataValue::MailExchange { display },
     }
 }
 
@@ -437,10 +454,19 @@ mod tests {
         // WHEN fields are extracted
         let fields = rdata_fields(&rdata);
 
-        // THEN preference and exchange are separate fields.
+        // THEN preference is plain text and the exchange is a MailExchange
+        // field with the trailing dot stripped.
         assert_eq!(
             fields,
-            vec![text("Preference", "10"), text("Exchange", "mail.example."),]
+            vec![
+                text("Preference", "10"),
+                RdataField {
+                    label: "Exchange",
+                    value: RdataValue::MailExchange {
+                        display: "mail.example".to_string()
+                    }
+                },
+            ]
         );
     }
 

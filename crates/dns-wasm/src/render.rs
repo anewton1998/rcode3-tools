@@ -156,6 +156,9 @@ fn record_block(record: &Record, received: DateTime<Utc>) -> String {
                 RdataValue::DomainName { display } => {
                     host_query_value_html(&display, "domain name")
                 }
+                RdataValue::MailExchange { display } => {
+                    host_query_value_html(&display, "mail exchange")
+                }
             };
             rows.push(row_with_class(field.label, "wrap_value", value));
         }
@@ -1037,13 +1040,17 @@ mod tests {
         // WHEN rendered
         let html = render_message(&message, received());
 
-        // THEN the MX fields are rendered as separate labeled rows.
+        // THEN the MX fields are rendered as separate labeled rows: the
+        // preference is plain text and the exchange carries the
+        // (⌕ A AAAA) query suffix and a copy button.
         assert!(
             html.contains("Preference</td><td class=\"wrap_value\">10</td>"),
             "{html}"
         );
         assert!(
-            html.contains("Exchange</td><td class=\"wrap_value\">mail.example.</td>"),
+            html.contains(
+                "Exchange</td><td class=\"wrap_value\">mail.example <span class=\"ns_query_suffix\">(<span class=\"ns_query_glyph\" aria-hidden=\"true\">\u{2315}</span> <a class=\"ns_query_link\" href=\"?name=mail.example&amp;type=A\" title=\"Query A records for mail.example\" aria-label=\"Query A records for mail.example\" data-ns-query=\"mail.example\" data-ns-query-type=\"A\">A</a> <a class=\"ns_query_link\" href=\"?name=mail.example&amp;type=AAAA\" title=\"Query AAAA records for mail.example\" aria-label=\"Query AAAA records for mail.example\" data-ns-query=\"mail.example\" data-ns-query-type=\"AAAA\">AAAA</a>)</span> <button type=\"button\" class=\"copy_btn\" title=\"Copy mail exchange to clipboard\" aria-label=\"Copy mail.example to clipboard\" data-copy-value=\"mail.example\"><svg xmlns=\"http://www.w3.org/2000/svg\" width=\"24\" height=\"24\" viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"2\" stroke-linecap=\"round\" stroke-linejoin=\"round\" class=\"copy-icon\"><rect width=\"8\" height=\"4\" x=\"8\" y=\"2\" rx=\"1\" ry=\"1\"/><path d=\"M16 4h2a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h2\"/></svg><svg xmlns=\"http://www.w3.org/2000/svg\" width=\"24\" height=\"24\" viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"2\" stroke-linecap=\"round\" stroke-linejoin=\"round\" class=\"check-icon\" style=\"display:none\"><path d=\"M20 6 9 17l-5-5\"/></svg></button></td>"
+            ),
             "{html}"
         );
         assert!(
