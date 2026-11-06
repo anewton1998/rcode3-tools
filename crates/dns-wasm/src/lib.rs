@@ -116,6 +116,27 @@ fn parse_record_type(code: &str) -> Result<RecordType, String> {
         .map_err(|_| format!("unknown DNS record type: {code}"))
 }
 
+/// Converts an IP address typed into the explorer input into its reverse
+/// DNS name (`"1.2.3.4"` → `"4.3.2.1.in-addr.arpa"`).
+///
+/// Returns `None` (JS `undefined`) when the input is not a parseable IP
+/// address, so the caller can distinguish "not an IP" from an error
+/// without exception handling. The lookup side pairs this with a forced
+/// `PTR` record type.
+///
+/// IPv4-mapped IPv6 addresses (`::ffff:1.2.3.4`) convert to the full
+/// 32-nibble `ip6.arpa` form per RFC 3596, not the `in-addr.arpa`
+/// form; bracketed (`[::1]`) and zone-id (`fe80::1%eth0`) forms do not
+/// parse and return `None`.
+#[wasm_bindgen(js_name = ipToReverseDns)]
+pub fn ip_to_reverse_dns_export(input: &str) -> Option<String> {
+    input
+        .trim()
+        .parse::<std::net::IpAddr>()
+        .ok()
+        .map(|ip| icann_rdap_common::rdns::ip_to_reverse_dns(&ip))
+}
+
 /// The payload returned by [`dns_explorer`].
 #[derive(serde::Serialize)]
 struct DnsLookupResult {
@@ -241,5 +262,74 @@ mod tests {
     fn parse_record_type_rejects_garbage() {
         assert!(parse_record_type("not-a-type").is_err());
         assert!(parse_record_type("").is_err());
+    }
+
+    #[test]
+    fn ip_to_reverse_dns_converts_ipv4() {
+        // GIVEN an IPv4 address in the input
+        // WHEN it is converted for a reverse lookup
+        let reverse = ip_to_reverse_dns_export("1.2.3.4");
+        // THEN it is the reversed-octet in-addr.arpa name
+        assert_eq!(reverse.as_deref(), Some("4.3.2.1.in-addr.arpa"));
+    }
+
+    #[test]
+    fn ip_to_reverse_dns_converts_ipv6() {
+        // GIVEN a compressed IPv6 address in the input
+        // WHEN it is converted for a reverse lookup
+        let reverse = ip_to_reverse_dns_export("2001:db8::567:89ab");
+        // THEN it is the full nibble-reversed ip6.arpa name
+        assert_eq!(
+            reverse.as_deref(),
+            Some("b.a.9.8.7.6.5.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.8.b.d.0.1.0.0.2.ip6.arpa")
+        );
+    }
+
+    #[test]
+    fn ip_to_reverse_dns_trims_whitespace() {
+        // GIVEN surrounding whitespace (the JS caller also trims; the
+        // Rust-side trim is defensive redundancy)
+        // WHEN it is converted
+        let reverse = ip_to_reverse_dns_export("  10.0.0.1  ");
+        // THEN the address still parses and converts
+        assert_eq!(reverse.as_deref(), Some("1.0.0.10.in-addr.arpa"));
+    }
+
+    #[test]
+    fn ip_to_reverse_dns_ipv4_mapped_ipv6_uses_ip6_arpa() {
+        // GIVEN an IPv4-mapped IPv6 address
+        // WHEN it is converted
+        let reverse = ip_to_reverse_dns_export("::ffff:1.2.3.4");
+        // THEN it is the full 32-nibble ip6.arpa form (RFC 3596), not
+        // the in-addr.arpa name a user might expect
+        assert_eq!(
+            reverse.as_deref(),
+            Some("4.0.3.0.2.0.1.0.f.f.f.f.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.ip6.arpa")
+        );
+    }
+
+    #[test]
+    fn ip_to_reverse_dns_returns_none_for_domain_names() {
+        // GIVEN plain domain names and partial IPs that are not addresses
+        // WHEN they are offered for reverse conversion
+        // THEN none of them convert (JS sees null, lookup keeps its type)
+        for input in [
+            "example.com",
+            "1.2.3",
+            "256.1.1.1",
+            "1.2.3.4.5",
+            "010.1.1.1",
+            "[::1]",
+            "fe80::1%eth0",
+            "",
+            "   ",
+            "2001:db8::gg",
+        ] {
+            assert_eq!(
+                ip_to_reverse_dns_export(input),
+                None,
+                "{input:?} should not convert to a reverse name"
+            );
+        }
     }
 }

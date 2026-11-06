@@ -122,6 +122,15 @@
                 if (this.busy) return;
                 const q = this.query.trim();
                 if (!q) return;
+                // An IP address typed into the input is a reverse-DNS
+                // lookup: convert it to the reverse name and force the
+                // record type to PTR. The rewrite is visible in the input,
+                // history, and share links so the exact queried name is
+                // always transparent (same as the result-panel reverse
+                // links via runReverseDns).
+                const reverse = window.DnsClient.ipToReverseDns(q);
+                const name = reverse ? reverse : q;
+                const recordType = reverse ? 'PTR' : this.recordType;
                 // Resolve + validate the DoH server before going busy. The
                 // check applies to the selected provider too, so a
                 // misconfigured non-https DOH_URL fails here with a clear
@@ -144,10 +153,18 @@
                 window.scrollTo({ top: 0, behavior: 'smooth' });
                 this.busy = true;
                 this.error = '';
+                // Commit the rewrite once the lookup proceeds, so a failed
+                // server validation leaves the input untouched. A later
+                // transport failure still rewrites: the query was issued,
+                // and the reverse name is what was queried.
+                if (reverse) {
+                    this.query = name;
+                    this.recordType = 'PTR';
+                }
                 const entry = {
                     id: Date.now() * 1000 + (seq++ % 1000),
-                    name: q.slice(0, NAME_MAX),
-                    recordType: this.recordType,
+                    name: name.slice(0, NAME_MAX),
+                    recordType: recordType,
                     status: 'ok',
                     error: '',
                     time: new Date().toLocaleString(),
@@ -160,7 +177,7 @@
                     // (e.g. NXDOMAIN) renders in `html` with a short summary
                     // in `error` that drives the red line and the history
                     // entry. Only a transport failure throws.
-                    const r = await window.DnsClient.dnsExplorer(q, this.recordType);
+                    const r = await window.DnsClient.dnsExplorer(name, recordType);
                     this.result = r.html;
                     this.error = r.error || '';
                     this.jsonText = r.json || '';
