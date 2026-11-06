@@ -20,7 +20,7 @@ axum = "0.8"
 base64 = "0.22"
 dotenvy = "0.15"
 hickory-proto = "0.26"
-reqwest = { version = "0.12", default-features = false, features = ["rustls-tls"] }
+reqwest = { version = "0.13", default-features = false, features = ["rustls"] }
 icann-rdap-client = { git = "https://github.com/icann/icann-rdap.git", branch = "dev" }
 icann-rdap-common = { git = "https://github.com/icann/icann-rdap.git", branch = "dev" }
 js-sys = "0.3"
