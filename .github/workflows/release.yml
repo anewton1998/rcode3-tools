@@ -27,7 +27,12 @@ jobs:
         # `cargo test --workspace` compiles rdap-wasm natively, pulling
         # icann-rdap-client -> reqwest(native-tls-vendored) -> openssl-sys, which
         # builds OpenSSL from source and needs full perl (FindBin) + make.
-        run: apt-get update && apt-get install -y --no-install-recommends curl ca-certificates perl make
+        #
+        # It also builds dns-explorer, whose build.rs runs `wasm-pack` over
+        # dns-wasm. dns-wasm's hickory-proto `dnssec-ring` feature pulls `ring`,
+        # which compiles C for wasm32-unknown-unknown; cc-rs defaults to `clang`
+        # for that target (gcc cannot target wasm32), so clang must be present.
+        run: apt-get update && apt-get install -y --no-install-recommends curl ca-certificates clang perl make
 
       - name: Install wasm toolchain
         # rdap-explorer/build.rs invokes wasm-pack, so it must be present to build.

@@ -12,9 +12,13 @@ ARG WASM_PACK_VERSION=0.15.0
 # TARGETARCH is provided automatically by docker buildx (amd64 | arm64).
 ARG TARGETARCH
 
-# curl/ca-certs are needed to fetch the pinned wasm-pack release.
+# curl/ca-certs fetch the pinned wasm-pack release.
+# clang is needed because dns-wasm's hickory-proto `dnssec-ring` feature pulls
+# `ring`, which compiles C for wasm32-unknown-unknown; cc-rs defaults to `clang`
+# for that target (gcc cannot target wasm32). ring uses `-nostdlibinc`, so no
+# wasm32 sysroot is required beyond clang's built-in WebAssembly backend.
 RUN apt-get update \
-    && apt-get install -y --no-install-recommends curl ca-certificates \
+    && apt-get install -y --no-install-recommends curl ca-certificates clang \
     && rm -rf /var/lib/apt/lists/*
 
 # Target required by the wasm crate + the wasm-pack binary itself.
