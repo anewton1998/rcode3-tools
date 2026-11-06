@@ -47,6 +47,12 @@ pub(crate) enum RdataValue {
         /// Visible mail exchanger host (trailing dot stripped).
         display: String,
     },
+    /// An SOA record's primary (master) nameserver with `A`/`AAAA`/RDAP
+    /// query links and a copy button.
+    PrimaryServer {
+        /// Visible primary server host (trailing dot stripped).
+        display: String,
+    },
 }
 
 /// One labeled field extracted from record data.
@@ -96,7 +102,7 @@ pub(crate) fn rdata_fields(rdata: &RData) -> Vec<RdataField> {
             mail_exchange_field("Exchange", mx.exchange.to_string()),
         ],
         RData::SOA(soa) => vec![
-            text("Primary Server", soa.mname.to_string()),
+            primary_server_field("Primary Server", soa.mname.to_string()),
             text("Responsible Person", soa.rname.to_string()),
             text("Serial", soa.serial.to_string()),
             text("Refresh", soa.refresh.to_string()),
@@ -212,6 +218,17 @@ fn mail_exchange_field(label: &'static str, value: impl Into<String>) -> RdataFi
     RdataField {
         label,
         value: RdataValue::MailExchange { display },
+    }
+}
+
+/// Builds an SOA primary-server field, stripping the trailing dot from the
+/// fully qualified host for display, copy and query use.
+fn primary_server_field(label: &'static str, value: impl Into<String>) -> RdataField {
+    let display = value.into();
+    let display = display.strip_suffix('.').unwrap_or(&display).to_string();
+    RdataField {
+        label,
+        value: RdataValue::PrimaryServer { display },
     }
 }
 
@@ -486,11 +503,17 @@ mod tests {
         // WHEN fields are extracted
         let fields = rdata_fields(&rdata);
 
-        // THEN every SOA field is labeled.
+        // THEN every SOA field is labeled, with the primary server carrying
+        // the trailing-dot-stripped host.
         assert_eq!(
             fields,
             vec![
-                text("Primary Server", "ns1.example."),
+                RdataField {
+                    label: "Primary Server",
+                    value: RdataValue::PrimaryServer {
+                        display: "ns1.example".to_string()
+                    }
+                },
                 text("Responsible Person", "admin.example."),
                 text("Serial", "2026010101"),
                 text("Refresh", "7200"),

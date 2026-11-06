@@ -149,7 +149,7 @@ fn record_block(record: &Record, received: DateTime<Utc>) -> String {
                     reverse_dns,
                     rdap_query_type,
                 } => address_value_html(&display, &reverse_dns, rdap_query_type),
-                RdataValue::Nameserver { display } => nameserver_value_html(&display),
+                RdataValue::Nameserver { display } => ns_query_value_html(&display, "nameserver"),
                 RdataValue::CanonicalName { display } => {
                     host_query_value_html(&display, "canonical name")
                 }
@@ -158,6 +158,9 @@ fn record_block(record: &Record, received: DateTime<Utc>) -> String {
                 }
                 RdataValue::MailExchange { display } => {
                     host_query_value_html(&display, "mail exchange")
+                }
+                RdataValue::PrimaryServer { display } => {
+                    ns_query_value_html(&display, "primary server")
                 }
             };
             rows.push(row_with_class(field.label, "wrap_value", value));
@@ -188,20 +191,22 @@ fn address_value_html(display: &str, reverse_dns: &str, rdap_query_type: &str) -
     )
 }
 
-/// Renders a nameserver name with its `A`/`AAAA` query links and a
-/// copy-to-clipboard button.
+/// Renders a nameserver-style host with its `(⌕ A AAAA RDAP)` query links
+/// and a copy-to-clipboard button.
 ///
-/// The visible name is plain text (not a link). The trailing
-/// `(⌕ A AAAA)` offers two in-page queries for the nameserver's address
-/// records, and the copy button carries `data-copy-value` so the
-/// explorer's delegated click handler can copy the name without Alpine
-/// processing `x-html` directives.
-fn nameserver_value_html(display: &str) -> String {
+/// Used by NS records and the SOA primary server: the visible name is
+/// plain text, the trailing `(⌕ A AAAA RDAP)` offers two in-page address
+/// queries plus a cross-app RDAP query, and the copy button carries
+/// `data-copy-value` so the explorer's delegated click handler can copy
+/// the name without Alpine processing `x-html` directives. `copy_label`
+/// names the kind of value (e.g. `"nameserver"`, `"primary server"`) so
+/// the tooltip reads naturally.
+fn ns_query_value_html(display: &str, copy_label: &str) -> String {
     format!(
         "{} {} {}",
         escape(display),
         nameserver_query_suffix_html(display),
-        copy_button_html(display, "nameserver")
+        copy_button_html(display, copy_label)
     )
 }
 
@@ -392,7 +397,7 @@ fn escape(text: &str) -> String {
 mod tests {
     use super::*;
     use hickory_proto::rr::RData;
-    use hickory_proto::rr::rdata::{A, AAAA, CNAME, MX, NAPTR, NS, PTR, TXT};
+    use hickory_proto::rr::rdata::{A, AAAA, CNAME, MX, NAPTR, NS, PTR, SOA, TXT};
     use std::net::{Ipv4Addr, Ipv6Addr};
 
     fn a_record(name: &str, ip: Ipv4Addr, ttl: u32) -> Record {
@@ -428,6 +433,22 @@ mod tests {
             name.parse().expect("name"),
             ttl,
             RData::PTR(PTR(domain.parse().expect("domain name"))),
+        )
+    }
+
+    fn soa_record(name: &str, mname: &str, rname: &str, ttl: u32) -> Record {
+        Record::from_rdata(
+            name.parse().expect("name"),
+            ttl,
+            RData::SOA(SOA::new(
+                mname.parse().expect("mname"),
+                rname.parse().expect("rname"),
+                2026010101,
+                7200,
+                3600,
+                1209600,
+                3600,
+            )),
         )
     }
 
@@ -991,6 +1012,36 @@ mod tests {
         assert!(
             !html.contains("type=nameserver"),
             "PTR suffix must not carry an RDAP nameserver link: {html}"
+        );
+    }
+
+    #[test]
+    fn soa_record_renders_primary_server_query_links_and_copy_button() {
+        // GIVEN an SOA record whose primary server is a nameserver host
+        let mut message = Message::new(
+            29,
+            hickory_proto::op::MessageType::Response,
+            hickory_proto::op::OpCode::Query,
+        );
+        message.metadata.response_code = ResponseCode::NoError;
+        message.add_answer(soa_record(
+            "example.com.",
+            "ns1.example.com.",
+            "admin.example.com.",
+            300,
+        ));
+
+        // WHEN rendered
+        let html = render_message(&message, received());
+
+        // THEN the Primary Server cell renders the host (trailing dot
+        // stripped) followed by the (⌕ A AAAA RDAP) query suffix and a
+        // copy button.
+        assert!(
+            html.contains(
+                "Primary Server</td><td class=\"wrap_value\">ns1.example.com <span class=\"ns_query_suffix\">(<span class=\"ns_query_glyph\" aria-hidden=\"true\">\u{2315}</span> <a class=\"ns_query_link\" href=\"?name=ns1.example.com&amp;type=A\" title=\"Query A records for ns1.example.com\" aria-label=\"Query A records for ns1.example.com\" data-ns-query=\"ns1.example.com\" data-ns-query-type=\"A\">A</a> <a class=\"ns_query_link\" href=\"?name=ns1.example.com&amp;type=AAAA\" title=\"Query AAAA records for ns1.example.com\" aria-label=\"Query AAAA records for ns1.example.com\" data-ns-query=\"ns1.example.com\" data-ns-query-type=\"AAAA\">AAAA</a> <a class=\"ns_query_link\" href=\"../rdap-explorer?query=ns1.example.com&amp;type=nameserver\" title=\"Query RDAP for ns1.example.com\" aria-label=\"Query RDAP for ns1.example.com\">RDAP</a>)</span> <button type=\"button\" class=\"copy_btn\" title=\"Copy primary server to clipboard\" aria-label=\"Copy ns1.example.com to clipboard\" data-copy-value=\"ns1.example.com\"><svg xmlns=\"http://www.w3.org/2000/svg\" width=\"24\" height=\"24\" viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"2\" stroke-linecap=\"round\" stroke-linejoin=\"round\" class=\"copy-icon\"><rect width=\"8\" height=\"4\" x=\"8\" y=\"2\" rx=\"1\" ry=\"1\"/><path d=\"M16 4h2a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h2\"/></svg><svg xmlns=\"http://www.w3.org/2000/svg\" width=\"24\" height=\"24\" viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"2\" stroke-linecap=\"round\" stroke-linejoin=\"round\" class=\"check-icon\" style=\"display:none\"><path d=\"M20 6 9 17l-5-5\"/></svg></button></td>"
+            ),
+            "{html}"
         );
     }
 
