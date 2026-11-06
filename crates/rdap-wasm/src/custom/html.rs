@@ -292,6 +292,61 @@ pub(crate) fn addr_with_scopes(value: &str, base_code: &str) -> String {
     lookup_with_scopes(value, base_code, &mono(value))
 }
 
+/// Percent-encodes a value for safe inclusion in a URL query component,
+/// leaving only the RFC 3986 unreserved set (`A-Z a-z 0-9 - . _ ~`)
+/// intact.
+///
+/// Applied to the host name *before* HTML-escaping the href so a hostile
+/// RDAP `ldhName` (an unvalidated JSON string) cannot smuggle a query
+/// metacharacter: a raw `#` would turn the rest into a fragment (dropping
+/// `type`), a raw `&` would inject an extra parameter, and a raw `%`
+/// would double-decode on the receiving side. Encoding on bytes is
+/// correct for UTF-8 (multi-byte sequences become `%XX%XX…`).
+fn percent_encode_query(s: &str) -> String {
+    let mut out = String::with_capacity(s.len());
+    for b in s.bytes() {
+        match b {
+            b'A'..=b'Z' | b'a'..=b'z' | b'0'..=b'9' | b'-' | b'.' | b'_' | b'~' => {
+                out.push(b as char)
+            }
+            _ => out.push_str(&format!("%{b:02X}")),
+        }
+    }
+    out
+}
+
+/// Renders the `(⌕ A AAAA)` cross-app DNS query suffix for a host name,
+/// linking to the sibling DNS Explorer mounted at `../dns-explorer`.
+///
+/// Mirrors the DNS explorer's own `(⌕ A AAAA)` treatment (and reuses its
+/// shared `ns_query_*` styles), but the links navigate cross-app rather
+/// than running an in-page lookup: each is a plain anchor to
+/// `../dns-explorer?name={name}&type=A` / `&type=AAAA`, which the DNS
+/// Explorer reads on load and queries. The magnifier is decorative
+/// (`aria-hidden`); the `A`/`AAAA` labels carry the action color and
+/// underline on hover. Same-tab navigation, so a Ctrl/Cmd/middle-click
+/// opens the query in a new tab.
+///
+/// The host name is percent-encoded for the query component (see
+/// [`percent_encode_query`]) and the href is then HTML-escaped (including
+/// quotes), so a hostile RDAP `ldhName` can neither smuggle a query
+/// metacharacter nor break out of the attribute. The `title`/`aria-label`
+/// keep the raw (HTML-escaped) name so tooltips stay human-readable. An
+/// empty `name` renders nothing.
+pub(crate) fn dns_query_suffix_html(name: &str) -> String {
+    if name.is_empty() {
+        return String::new();
+    }
+    let enc = percent_encode_query(name);
+    let a_href = escape_attr(&format!("../dns-explorer?name={enc}&type=A"));
+    let aaaa_href = escape_attr(&format!("../dns-explorer?name={enc}&type=AAAA"));
+    let a_label = escape_attr(&format!("Query A records for {name}"));
+    let aaaa_label = escape_attr(&format!("Query AAAA records for {name}"));
+    format!(
+        "<span class=\"ns_query_suffix\">(<span class=\"ns_query_glyph\" aria-hidden=\"true\">\u{2315}</span> <a class=\"ns_query_link\" href=\"{a_href}\" title=\"{a_label}\" aria-label=\"{a_label}\">A</a> <a class=\"ns_query_link\" href=\"{aaaa_href}\" title=\"{aaaa_label}\" aria-label=\"{aaaa_label}\">AAAA</a>)</span>"
+    )
+}
+
 /// Adds a "Unicode Name" row only when it differs from the LDH name.
 pub(crate) fn push_unicode(rows: &mut Vec<String>, unicode: Option<&str>, ldh: Option<&str>) {
     if let Some(u) = unicode {
@@ -436,5 +491,73 @@ mod tests {
         // WHEN/THEN it renders as plain mono text with no lookup action
         assert_eq!(html, "<span class=\"mono_text\"></span>");
         assert!(!html.contains("lookup()"), "{html}");
+    }
+
+    #[test]
+    fn dns_query_suffix_renders_a_and_aaaa_cross_app_links() {
+        // GIVEN a host name
+        let html = dns_query_suffix_html("ns1.example.com");
+
+        // THEN it carries the shared suffix/glyph and both cross-app links
+        assert!(html.contains("class=\"ns_query_suffix\""), "{html}");
+        assert!(html.contains("class=\"ns_query_glyph\""), "{html}");
+        assert!(html.contains("\u{2315}"), "missing magnifier glyph: {html}");
+        assert!(
+            html.contains("href=\"../dns-explorer?name=ns1.example.com&amp;type=A\""),
+            "missing A link: {html}"
+        );
+        assert!(
+            html.contains("href=\"../dns-explorer?name=ns1.example.com&amp;type=AAAA\""),
+            "missing AAAA link: {html}"
+        );
+        assert_eq!(html.matches("class=\"ns_query_link\"").count(), 2, "{html}");
+    }
+
+    #[test]
+    fn dns_query_suffix_empty_renders_nothing() {
+        // GIVEN an empty name
+        // WHEN/THEN no suffix markup is produced
+        assert_eq!(dns_query_suffix_html(""), "");
+    }
+
+    #[test]
+    fn dns_query_suffix_escapes_hostile_name_in_href_and_label() {
+        // GIVEN a name carrying attribute- and query-breaking characters
+        let html = dns_query_suffix_html("a\"b&c#d");
+
+        // THEN the quote is HTML-escaped and the query metacharacters
+        // (`&`, `#`) are percent-encoded in the href, so neither can
+        // break the attribute nor smuggle a parameter/fragment.
+        assert!(
+            html.contains("name=a%22b%26c%23d&amp;type=A"),
+            "href not safely encoded: {html}"
+        );
+        assert!(
+            html.contains("name=a%22b%26c%23d&amp;type=AAAA"),
+            "href not safely encoded: {html}"
+        );
+        // no raw quote survives in the href (the `#` is percent-encoded
+        // there; the title/aria-label keep the raw name by design)
+        assert!(!html.contains("href=\"a\"b"), "raw quote leaked: {html}");
+        assert!(html.contains("%23"), "hash not percent-encoded: {html}");
+    }
+
+    #[test]
+    fn dns_query_suffix_percent_encodes_percent_to_avoid_double_decode() {
+        // GIVEN a name that is itself a percent-escape
+        let html = dns_query_suffix_html("%41");
+
+        // THEN the `%` is encoded to `%25` so the receiver decodes it
+        // back to the literal `%41`, not to `A`.
+        assert!(html.contains("name=%2541&amp;type=A"), "{html}");
+    }
+
+    #[test]
+    fn percent_encode_query_leaves_unreserved_and_encodes_the_rest() {
+        // GIVEN a mix of unreserved and reserved characters
+        let enc = percent_encode_query("aZ9-._~ &+=#%");
+
+        // WHEN/THEN unreserved pass through, the rest are percent-encoded
+        assert_eq!(enc, "aZ9-._~%20%26%2B%3D%23%25");
     }
 }

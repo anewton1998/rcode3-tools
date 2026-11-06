@@ -7,8 +7,8 @@ use icann_rdap_common::prelude::{
 use super::anchor::{entity_anchor, id_attr, nameserver_anchor};
 use super::entity::append_entity_body;
 use super::html::{
-    div_id, escape, geofeed_download_link, kv_table, lookup_action, mono, off_site_link, row,
-    row_wrapped, section, str_opt, title, with_copy,
+    div_id, dns_query_suffix_html, escape, geofeed_download_link, kv_table, lookup_action, mono,
+    off_site_link, row, row_wrapped, section, str_opt, title, with_copy,
 };
 
 /// Appends the shared object-common sections (status, events, links, redacted,
@@ -169,12 +169,20 @@ pub(crate) fn nameserver_list(nameservers: &[Nameserver], anchor: &str) -> Strin
         .enumerate()
         .filter_map(|(i, ns)| ns.ldh_name.as_deref().map(|n| (i, n)))
         .map(|(i, n)| {
+            // Each nameserver name keeps its in-page RDAP lookup and gains
+            // the (⌕ A AAAA) cross-app DNS query suffix, so the host's
+            // address records can be resolved in the DNS Explorer.
+            let canon = n.trim_end_matches('.');
             format!(
                 "<li{}>{}</li>",
                 id_attr(&nameserver_anchor(anchor, i)),
                 with_copy(
-                    lookup_action(n, "nameserver", &mono(n)),
-                    n.trim_end_matches('.')
+                    format!(
+                        "{} {}",
+                        lookup_action(n, "nameserver", &mono(n)),
+                        dns_query_suffix_html(canon)
+                    ),
+                    canon
                 )
             )
         })
@@ -534,6 +542,38 @@ mod tests {
         assert!(
             html.contains("copyToClipboard('ns2.example.com')"),
             "{html}"
+        );
+    }
+
+    #[test]
+    fn nameserver_list_entries_get_dns_explorer_a_aaaa_links() {
+        // GIVEN a domain with nameservers
+        let json = r#"{
+            "objectClassName": "domain",
+            "ldhName": "example.com",
+            "nameservers": [
+                {"objectClassName": "nameserver", "ldhName": "ns1.example.com"},
+                {"objectClassName": "nameserver", "ldhName": "ns2.example.com"}
+            ]
+        }"#;
+        let domain: Domain = serde_json::from_str(json).unwrap();
+
+        // WHEN rendered
+        let html = domain_html(&domain, "rdap.example", "");
+
+        // THEN each nameserver keeps its in-page RDAP lookup AND gains the
+        // (⌕ A AAAA) cross-app DNS links to the DNS Explorer
+        assert!(
+            html.contains("query = 'ns1.example.com'; queryType = 'nameserver'; lookup()"),
+            "{html}"
+        );
+        assert!(
+            html.contains("href=\"../dns-explorer?name=ns1.example.com&amp;type=A\""),
+            "missing ns1 A link: {html}"
+        );
+        assert!(
+            html.contains("href=\"../dns-explorer?name=ns2.example.com&amp;type=AAAA\""),
+            "missing ns2 AAAA link: {html}"
         );
     }
 

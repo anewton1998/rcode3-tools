@@ -2,7 +2,8 @@ use icann_rdap_common::prelude::Domain;
 
 use super::common::{append_common, nameserver_list};
 use super::html::{
-    kv_table, lookup_with_scopes, mono, push_unicode, render, row, section, title, with_copy,
+    dns_query_suffix_html, kv_table, lookup_with_scopes, mono, push_unicode, render, row, section,
+    title, with_copy,
 };
 
 /// The reverse-DNS base query code for a domain name, if it is one:
@@ -36,7 +37,11 @@ pub(crate) fn domain_html(domain: &Domain, authority: &str, anchor: &str) -> Str
                 // uses the canonical untrailing-dot form.
                 lookup_with_scopes(copied, base, &mono(name))
             }
-            None => mono(name),
+            // A forward domain gets the (⌕ A AAAA) cross-app DNS query
+            // suffix so its address records can be looked up in the DNS
+            // Explorer. The query value is the canonical (dot-stripped)
+            // name; the display keeps the original.
+            None => format!("{} {}", mono(name), dns_query_suffix_html(copied)),
         };
         summary.push(row("Name", &with_copy(value, copied)));
     }
@@ -248,7 +253,95 @@ mod tests {
 
         // THEN no reverse-DNS scope links are added
         assert!(!html.contains("rdns_"), "{html}");
-        assert!(!html.contains("\u{2315}"), "{html}");
+    }
+
+    #[test]
+    fn forward_domain_name_gets_dns_explorer_a_aaaa_links() {
+        // GIVEN an ordinary forward domain
+        let json = r#"{
+            "objectClassName": "domain",
+            "handle": "EXAMPLE-COM",
+            "ldhName": "example.com"
+        }"#;
+        let domain: Domain = serde_json::from_str(json).unwrap();
+
+        // WHEN rendered
+        let html = domain_html(&domain, "rdap.example", "");
+
+        // THEN the Name row carries the (⌕ A AAAA) cross-app DNS links
+        assert!(html.contains("class=\"ns_query_suffix\""), "{html}");
+        assert!(
+            html.contains("href=\"../dns-explorer?name=example.com&amp;type=A\""),
+            "missing A link: {html}"
+        );
+        assert!(
+            html.contains("href=\"../dns-explorer?name=example.com&amp;type=AAAA\""),
+            "missing AAAA link: {html}"
+        );
+    }
+
+    #[test]
+    fn forward_domain_trailing_dot_query_is_stripped() {
+        // GIVEN a forward domain with a trailing root dot
+        let json = r#"{
+            "objectClassName": "domain",
+            "handle": "EXAMPLE-COM",
+            "ldhName": "example.com."
+        }"#;
+        let domain: Domain = serde_json::from_str(json).unwrap();
+
+        // WHEN rendered
+        let html = domain_html(&domain, "rdap.example", "");
+
+        // THEN the DNS query value drops the trailing dot but display keeps it
+        assert!(
+            html.contains("href=\"../dns-explorer?name=example.com&amp;type=A\""),
+            "trailing dot leaked into query: {html}"
+        );
+        assert!(
+            !html.contains("example.com.&amp;type="),
+            "trailing dot leaked into query: {html}"
+        );
+        assert!(
+            html.contains("example.com."),
+            "display lost the dot: {html}"
+        );
+    }
+
+    #[test]
+    fn reverse_domain_gets_no_dns_explorer_a_aaaa_links() {
+        // GIVEN a reverse-DNS domain
+        let json = r#"{
+            "objectClassName": "domain",
+            "handle": "2.0.192.in-addr.arpa",
+            "ldhName": "2.0.192.in-addr.arpa"
+        }"#;
+        let domain: Domain = serde_json::from_str(json).unwrap();
+
+        // WHEN rendered
+        let html = domain_html(&domain, "rdap.example", "");
+
+        // THEN no cross-app A/AAAA DNS links are added (reverse names have none)
+        assert!(!html.contains("ns_query_link"), "{html}");
+        assert!(!html.contains("dns-explorer"), "{html}");
+    }
+
+    #[test]
+    fn root_dot_only_name_renders_no_empty_query_suffix() {
+        // GIVEN a forward name that is just the root dot (canon is empty)
+        let json = r#"{
+            "objectClassName": "domain",
+            "handle": "ROOT",
+            "ldhName": "."
+        }"#;
+        let domain: Domain = serde_json::from_str(json).unwrap();
+
+        // WHEN rendered
+        let html = domain_html(&domain, "rdap.example", "");
+
+        // THEN no (⌕ A AAAA) suffix is emitted (no stray empty parentheses)
+        assert!(!html.contains("ns_query_suffix"), "{html}");
+        assert!(!html.contains("dns-explorer"), "{html}");
     }
 
     #[test]

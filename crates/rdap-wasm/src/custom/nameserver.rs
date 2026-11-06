@@ -1,17 +1,25 @@
 use icann_rdap_common::prelude::Nameserver;
 
 use super::common::append_common;
-use super::html::{addr_with_scopes, kv_table, mono, push_unicode, render, row, title, with_copy};
+use super::html::{
+    addr_with_scopes, dns_query_suffix_html, kv_table, mono, push_unicode, render, row, title,
+    with_copy,
+};
 
 pub(crate) fn nameserver_html(ns: &Nameserver, authority: &str, anchor: &str) -> String {
     let oc = &ns.object_common;
     let mut summary = Vec::new();
     if let Some(name) = ns.ldh_name.as_deref() {
         // Copy the canonical name (trailing root dot stripped), matching
-        // the domain-name policy.
+        // the domain-name policy. The (⌕ A AAAA) suffix queries the
+        // sibling DNS Explorer for the nameserver's address records.
+        let canon = name.trim_end_matches('.');
         summary.push(row(
             "Name",
-            &with_copy(mono(name), name.trim_end_matches('.')),
+            &with_copy(
+                format!("{} {}", mono(name), dns_query_suffix_html(canon)),
+                canon,
+            ),
         ));
     }
     push_unicode(
@@ -195,6 +203,31 @@ mod tests {
 
         // THEN the Handle row carries a copy button for the handle
         assert!(html.contains("copyToClipboard('NS1-X')"), "{html}");
+    }
+
+    #[test]
+    fn nameserver_name_gets_dns_explorer_a_aaaa_links() {
+        // GIVEN a nameserver
+        let json = r#"{
+            "objectClassName": "nameserver",
+            "handle": "NS1-X",
+            "ldhName": "ns1.example.com"
+        }"#;
+        let ns: Nameserver = serde_json::from_str(json).unwrap();
+
+        // WHEN rendered
+        let html = nameserver_html(&ns, "rdap.example", "");
+
+        // THEN the Name row carries the (⌕ A AAAA) cross-app DNS links
+        assert!(html.contains("class=\"ns_query_suffix\""), "{html}");
+        assert!(
+            html.contains("href=\"../dns-explorer?name=ns1.example.com&amp;type=A\""),
+            "missing A link: {html}"
+        );
+        assert!(
+            html.contains("href=\"../dns-explorer?name=ns1.example.com&amp;type=AAAA\""),
+            "missing AAAA link: {html}"
+        );
     }
 
     #[test]
