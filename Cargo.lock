@@ -417,6 +417,7 @@ dependencies = [
  "serde_json",
  "thiserror",
  "tokio",
+ "url",
  "wasm-bindgen",
  "wasm-bindgen-futures",
 ]

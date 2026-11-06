@@ -163,6 +163,8 @@ fn record_block(record: &Record, received: DateTime<Utc>) -> String {
                     ns_query_value_html(&display, "primary server")
                 }
                 RdataValue::ServiceTarget { display } => host_query_value_html(&display, "target"),
+                RdataValue::CaaIssuer { display } => host_query_value_html(&display, "CAA value"),
+                RdataValue::CaaEmail { display } => copy_value_html(&display, "email address"),
             };
             rows.push(row_with_class(field.label, "wrap_value", value));
         }
@@ -274,6 +276,20 @@ fn host_query_value_html(display: &str, copy_label: &str) -> String {
         "{} {} {}",
         escape(display),
         dns_query_suffix_html(display),
+        copy_button_html(display, copy_label)
+    )
+}
+
+/// Renders a value with a copy-to-clipboard button but no query links.
+///
+/// Used by the CAA `iodef` email value: the visible text is plain and the
+/// trailing copy button carries `data-copy-value` for the explorer's
+/// delegated handler. `copy_label` names the kind of value (e.g.
+/// `"email address"`) so the tooltip reads naturally.
+fn copy_value_html(display: &str, copy_label: &str) -> String {
+    format!(
+        "{} {}",
+        escape(display),
         copy_button_html(display, copy_label)
     )
 }
@@ -398,7 +414,7 @@ fn escape(text: &str) -> String {
 mod tests {
     use super::*;
     use hickory_proto::rr::RData;
-    use hickory_proto::rr::rdata::{A, AAAA, CNAME, MX, NAPTR, NS, PTR, SOA, SRV, TXT};
+    use hickory_proto::rr::rdata::{A, AAAA, CAA, CNAME, MX, NAPTR, NS, PTR, SOA, SRV, TXT};
     use std::net::{Ipv4Addr, Ipv6Addr};
 
     fn a_record(name: &str, ip: Ipv4Addr, ttl: u32) -> Record {
@@ -458,6 +474,29 @@ mod tests {
             name.parse().expect("name"),
             ttl,
             RData::SRV(SRV::new(10, 20, 443, target.parse().expect("target"))),
+        )
+    }
+
+    fn caa_issue_record(name: &str, issuer: &str, ttl: u32) -> Record {
+        Record::from_rdata(
+            name.parse().expect("name"),
+            ttl,
+            RData::CAA(CAA::new_issue(
+                false,
+                Some(issuer.parse().expect("issuer")),
+                Vec::new(),
+            )),
+        )
+    }
+
+    fn caa_iodef_record(name: &str, url: &str, ttl: u32) -> Record {
+        Record::from_rdata(
+            name.parse().expect("name"),
+            ttl,
+            RData::CAA(CAA::new_iodef(
+                false,
+                url::Url::parse(url).expect("iodef url"),
+            )),
         )
     }
 
@@ -1084,6 +1123,71 @@ mod tests {
         assert!(
             !html.contains("type=nameserver"),
             "SRV suffix must not carry an RDAP nameserver link: {html}"
+        );
+    }
+
+    #[test]
+    fn caa_record_renders_issuer_query_links_and_copy_button() {
+        // GIVEN a CAA issue record whose value is an LDH issuer host
+        let mut message = Message::new(
+            31,
+            hickory_proto::op::MessageType::Response,
+            hickory_proto::op::OpCode::Query,
+        );
+        message.metadata.response_code = ResponseCode::NoError;
+        message.add_answer(caa_issue_record("example.com.", "ca.example.net.", 300));
+
+        // WHEN rendered
+        let html = render_message(&message, received());
+
+        // THEN the Value cell renders the issuer (trailing dot stripped)
+        // followed by the (⌕ A AAAA) query suffix and a copy button — and
+        // no RDAP link.
+        assert!(
+            html.contains(
+                "Value</td><td class=\"wrap_value\">ca.example.net <span class=\"ns_query_suffix\">(<span class=\"ns_query_glyph\" aria-hidden=\"true\">\u{2315}</span> <a class=\"ns_query_link\" href=\"?name=ca.example.net&amp;type=A\" title=\"Query A records for ca.example.net\" aria-label=\"Query A records for ca.example.net\" data-ns-query=\"ca.example.net\" data-ns-query-type=\"A\">A</a> <a class=\"ns_query_link\" href=\"?name=ca.example.net&amp;type=AAAA\" title=\"Query AAAA records for ca.example.net\" aria-label=\"Query AAAA records for ca.example.net\" data-ns-query=\"ca.example.net\" data-ns-query-type=\"AAAA\">AAAA</a>)</span> <button type=\"button\" class=\"copy_btn\" title=\"Copy CAA value to clipboard\" aria-label=\"Copy ca.example.net to clipboard\" data-copy-value=\"ca.example.net\"><svg xmlns=\"http://www.w3.org/2000/svg\" width=\"24\" height=\"24\" viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"2\" stroke-linecap=\"round\" stroke-linejoin=\"round\" class=\"copy-icon\"><rect width=\"8\" height=\"4\" x=\"8\" y=\"2\" rx=\"1\" ry=\"1\"/><path d=\"M16 4h2a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h2\"/></svg><svg xmlns=\"http://www.w3.org/2000/svg\" width=\"24\" height=\"24\" viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"2\" stroke-linecap=\"round\" stroke-linejoin=\"round\" class=\"check-icon\" style=\"display:none\"><path d=\"M20 6 9 17l-5-5\"/></svg></button></td>"
+            ),
+            "{html}"
+        );
+        assert!(
+            !html.contains("type=nameserver"),
+            "CAA issuer suffix must not carry an RDAP nameserver link: {html}"
+        );
+    }
+
+    #[test]
+    fn caa_iodef_mailto_renders_copy_button_only() {
+        // GIVEN a CAA iodef record whose value is a mailto URI
+        let mut message = Message::new(
+            32,
+            hickory_proto::op::MessageType::Response,
+            hickory_proto::op::OpCode::Query,
+        );
+        message.metadata.response_code = ResponseCode::NoError;
+        message.add_answer(caa_iodef_record(
+            "example.com.",
+            "mailto:security@example.com",
+            300,
+        ));
+
+        // WHEN rendered
+        let html = render_message(&message, received());
+
+        // THEN the Value cell renders the bare email address with a copy
+        // button only — no A/AAAA query links and no RDAP link.
+        assert!(
+            html.contains(
+                "Value</td><td class=\"wrap_value\">security@example.com <button type=\"button\" class=\"copy_btn\" title=\"Copy email address to clipboard\" aria-label=\"Copy security@example.com to clipboard\" data-copy-value=\"security@example.com\"><svg xmlns=\"http://www.w3.org/2000/svg\" width=\"24\" height=\"24\" viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"2\" stroke-linecap=\"round\" stroke-linejoin=\"round\" class=\"copy-icon\"><rect width=\"8\" height=\"4\" x=\"8\" y=\"2\" rx=\"1\" ry=\"1\"/><path d=\"M16 4h2a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h2\"/></svg><svg xmlns=\"http://www.w3.org/2000/svg\" width=\"24\" height=\"24\" viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"2\" stroke-linecap=\"round\" stroke-linejoin=\"round\" class=\"check-icon\" style=\"display:none\"><path d=\"M20 6 9 17l-5-5\"/></svg></button></td>"
+            ),
+            "{html}"
+        );
+        assert!(
+            !html.contains("data-ns-query"),
+            "CAA email value must not carry A/AAAA query links: {html}"
+        );
+        assert!(
+            !html.contains("type=nameserver"),
+            "CAA email value must not carry an RDAP nameserver link: {html}"
         );
     }
 

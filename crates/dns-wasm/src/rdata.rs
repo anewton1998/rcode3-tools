@@ -10,6 +10,7 @@ use std::net::IpAddr;
 
 use hickory_proto::rr::RData;
 use hickory_proto::rr::rdata::{A, AAAA};
+use icann_rdap_common::check::StringCheck;
 use icann_rdap_common::rdns::ip_to_reverse_dns;
 
 /// A display-ready value extracted from record data.
@@ -57,6 +58,18 @@ pub(crate) enum RdataValue {
     /// button.
     ServiceTarget {
         /// Visible target host (trailing dot stripped).
+        display: String,
+    },
+    /// A CAA record value that is an LDH host name (the authorized issuer
+    /// domain), with `A`/`AAAA` query links and a copy button.
+    CaaIssuer {
+        /// Visible issuer host (trailing dot stripped).
+        display: String,
+    },
+    /// A CAA `iodef` value that is a `mailto:` address, with a copy
+    /// button.
+    CaaEmail {
+        /// Visible email address (the `mailto:` scheme stripped).
         display: String,
     },
 }
@@ -126,7 +139,7 @@ pub(crate) fn rdata_fields(rdata: &RData) -> Vec<RdataField> {
             text("Issuer Critical", caa.issuer_critical.to_string()),
             text("Reserved Flags", caa.reserved_flags.to_string()),
             text("Tag", caa.tag.clone()),
-            text("Value", String::from_utf8_lossy(&caa.value).into_owned()),
+            caa_value_field("Value", &caa.value),
         ],
         RData::SSHFP(sshfp) => vec![
             text("Algorithm", u8::from(sshfp.algorithm).to_string()),
@@ -246,6 +259,64 @@ fn service_target_field(label: &'static str, value: impl Into<String>) -> RdataF
     RdataField {
         label,
         value: RdataValue::ServiceTarget { display },
+    }
+}
+
+/// Builds a CAA value field, classifying the raw value bytes by shape.
+///
+/// A value that is an LDH host name (at least two labels, per
+/// [`StringCheck::is_ldh_hostname`]) becomes a [`RdataValue::CaaIssuer`]
+/// so the renderer can offer `A`/`AAAA` queries and a copy button. A
+/// `mailto:` URI becomes a [`RdataValue::CaaEmail`] carrying just the
+/// email address for copying. Anything else — including an `issue` value
+/// carrying `;` parameters, which is not a bare hostname — stays plain
+/// [`RdataValue::Text`].
+///
+/// The host is tested on the raw decoded value (`is_ldh_hostname` already
+/// tolerates a single trailing dot) and the trailing dot is then stripped
+/// for display, so a `..`-terminated value is correctly rejected rather
+/// than shown with a stray dot.
+fn caa_value_field(label: &'static str, value: &[u8]) -> RdataField {
+    let decoded = String::from_utf8_lossy(value).into_owned();
+    if decoded.is_ldh_hostname() {
+        let display = decoded.strip_suffix('.').unwrap_or(&decoded).to_string();
+        RdataField {
+            label,
+            value: RdataValue::CaaIssuer { display },
+        }
+    } else if let Some(email) = mailto_address(&decoded) {
+        RdataField {
+            label,
+            value: RdataValue::CaaEmail { display: email },
+        }
+    } else {
+        text(label, decoded)
+    }
+}
+
+/// Extracts the email address from a `mailto:` URI.
+///
+/// The scheme match is case-insensitive (per RFC 3986) and compares bytes
+/// so a non-ASCII prefix never slices a character boundary. Any `?`/`#`
+/// parameters (e.g. `?subject=CAA`) are dropped so only the address is
+/// returned. Returns `None` when the value is not a `mailto:` URI, the
+/// address portion is empty, or it lacks an `@` (so a bare `mailto:` or a
+/// non-address like `mailto:hello` falls through to plain text).
+fn mailto_address(text: &str) -> Option<String> {
+    const PREFIX: &[u8] = b"mailto:";
+    let bytes = text.as_bytes();
+    if bytes.len() < PREFIX.len() || !bytes[..PREFIX.len()].eq_ignore_ascii_case(PREFIX) {
+        return None;
+    }
+    let address = text[PREFIX.len()..]
+        .split(['?', '#'])
+        .next()
+        .unwrap_or("")
+        .trim();
+    if address.is_empty() || !address.contains('@') {
+        None
+    } else {
+        Some(address.to_string())
     }
 }
 
@@ -575,15 +646,181 @@ mod tests {
         // WHEN fields are extracted
         let fields = rdata_fields(&rdata);
 
-        // THEN the CAA flag, tag and value are separate fields.
+        // THEN the CAA flag, tag and value are separate fields, with the
+        // issuer value classified as a CaaIssuer host (trailing dot
+        // stripped).
         assert_eq!(fields.len(), 4);
         assert_eq!(fields[0], text("Issuer Critical", "true"));
         assert_eq!(fields[1], text("Reserved Flags", "0"));
         assert_eq!(fields[2], text("Tag", "issue"));
-        assert!(
-            String::from_utf8_lossy(caa_value(&rdata)).contains("ca.example."),
-            "CAA value should carry the issuer name"
+        assert_eq!(
+            fields[3],
+            RdataField {
+                label: "Value",
+                value: RdataValue::CaaIssuer {
+                    display: "ca.example".to_string()
+                }
+            }
         );
+    }
+
+    #[test]
+    fn caa_value_field_classifies_ldh_host_as_issuer() {
+        // GIVEN a CAA value that is a bare LDH host name
+        // WHEN classified
+        let field = caa_value_field("Value", b"ca.example.net");
+        // THEN it is a CaaIssuer with the value unchanged.
+        assert_eq!(
+            field,
+            RdataField {
+                label: "Value",
+                value: RdataValue::CaaIssuer {
+                    display: "ca.example.net".to_string()
+                }
+            }
+        );
+    }
+
+    #[test]
+    fn caa_value_field_strips_trailing_dot_from_issuer() {
+        // GIVEN a CAA value carrying a trailing dot
+        // WHEN classified
+        let field = caa_value_field("Value", b"ca.example.net.");
+        // THEN the display host has no trailing dot.
+        assert_eq!(
+            field.value,
+            RdataValue::CaaIssuer {
+                display: "ca.example.net".to_string()
+            }
+        );
+    }
+
+    #[test]
+    fn caa_value_field_classifies_mailto_as_email() {
+        // GIVEN a CAA iodef value that is a mailto URI
+        // WHEN classified
+        let field = caa_value_field("Value", b"mailto:security@example.com");
+        // THEN it is a CaaEmail carrying the bare address.
+        assert_eq!(
+            field.value,
+            RdataValue::CaaEmail {
+                display: "security@example.com".to_string()
+            }
+        );
+    }
+
+    #[test]
+    fn caa_value_field_mailto_is_case_insensitive() {
+        // GIVEN a mailto URI with an uppercase scheme
+        // WHEN classified
+        let field = caa_value_field("Value", b"MAILTO:Alerts@Example.COM");
+        // THEN the address is still extracted with its case preserved.
+        assert_eq!(
+            field.value,
+            RdataValue::CaaEmail {
+                display: "Alerts@Example.COM".to_string()
+            }
+        );
+    }
+
+    #[test]
+    fn caa_value_field_drops_mailto_query_params() {
+        // GIVEN a mailto URI with a subject parameter
+        // WHEN classified
+        let field = caa_value_field("Value", b"mailto:report@example.com?subject=CAA");
+        // THEN only the address before the `?` is kept.
+        assert_eq!(
+            field.value,
+            RdataValue::CaaEmail {
+                display: "report@example.com".to_string()
+            }
+        );
+    }
+
+    #[test]
+    fn caa_value_field_non_host_non_mailto_stays_text() {
+        // GIVEN a CAA value that is neither a host nor a mailto URI
+        // WHEN classified
+        let field = caa_value_field("Value", b"https://iodef.example.com/");
+        // THEN it stays plain Text.
+        assert_eq!(field, text("Value", "https://iodef.example.com/"));
+    }
+
+    #[test]
+    fn caa_value_field_issue_with_params_stays_text() {
+        // GIVEN an issue value carrying a `;` parameter (not a bare host)
+        // WHEN classified
+        let field = caa_value_field("Value", b"ca.example.net; account=230123");
+        // THEN it stays plain Text (strict whole-value check).
+        assert_eq!(field, text("Value", "ca.example.net; account=230123"));
+    }
+
+    #[test]
+    fn caa_value_field_empty_value_is_empty_text() {
+        // GIVEN an empty CAA value
+        // WHEN classified
+        let field = caa_value_field("Value", b"");
+        // THEN it is empty Text.
+        assert_eq!(field, text("Value", ""));
+    }
+
+    #[test]
+    fn caa_value_field_double_trailing_dot_is_text() {
+        // GIVEN a value with a doubled trailing dot (not a valid host)
+        // WHEN classified
+        let field = caa_value_field("Value", b"ca.example.net..");
+        // THEN it is plain Text rather than a host with a stray dot.
+        assert_eq!(field, text("Value", "ca.example.net.."));
+    }
+
+    #[test]
+    fn caa_value_field_single_label_is_text() {
+        // GIVEN a single-label value (is_ldh_hostname needs two labels)
+        // WHEN classified
+        let field = caa_value_field("Value", b"localhost");
+        // THEN it is plain Text.
+        assert_eq!(field, text("Value", "localhost"));
+    }
+
+    #[test]
+    fn caa_value_field_mailto_drops_fragment() {
+        // GIVEN a mailto URI with a `#` fragment
+        // WHEN classified
+        let field = caa_value_field("Value", b"mailto:report@example.com#frag");
+        // THEN only the address before the `#` is kept.
+        assert_eq!(
+            field.value,
+            RdataValue::CaaEmail {
+                display: "report@example.com".to_string()
+            }
+        );
+    }
+
+    #[test]
+    fn caa_value_field_mailto_without_at_is_text() {
+        // GIVEN a mailto value that is not an address (no `@`)
+        // WHEN classified
+        let field = caa_value_field("Value", b"mailto:hello");
+        // THEN it falls through to plain Text.
+        assert_eq!(field, text("Value", "mailto:hello"));
+    }
+
+    #[test]
+    fn caa_value_field_bare_mailto_is_text() {
+        // GIVEN a bare `mailto:` with no address
+        // WHEN classified
+        let field = caa_value_field("Value", b"mailto:");
+        // THEN it falls through to plain Text.
+        assert_eq!(field, text("Value", "mailto:"));
+    }
+
+    #[test]
+    fn caa_value_field_invalid_utf8_is_lossy_text() {
+        // GIVEN a CAA value with an invalid UTF-8 byte
+        // WHEN classified
+        let field = caa_value_field("Value", &[0xff, 0x41]);
+        // THEN the invalid byte is replaced and the value stays plain Text.
+        assert_eq!(field, text("Value", "\u{FFFD}A"));
     }
 
     #[test]
@@ -724,12 +961,5 @@ mod tests {
         // THEN no typed fields are returned, so the renderer uses the plain
         // fallback row.
         assert!(fields.is_empty());
-    }
-
-    fn caa_value(rdata: &RData) -> &[u8] {
-        match rdata {
-            RData::CAA(caa) => &caa.value,
-            _ => panic!("expected CAA rdata"),
-        }
     }
 }
