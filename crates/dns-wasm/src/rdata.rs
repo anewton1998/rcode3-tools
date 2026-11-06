@@ -8,6 +8,7 @@
 use std::fmt::Write;
 use std::net::IpAddr;
 
+use hickory_proto::rr::Name;
 use hickory_proto::rr::RData;
 use hickory_proto::rr::rdata::{A, AAAA};
 use icann_rdap_common::check::StringCheck;
@@ -72,6 +73,13 @@ pub(crate) enum RdataValue {
         /// Visible email address (the `mailto:` scheme stripped).
         display: String,
     },
+    /// An SOA record's responsible-person mailbox, rendered as an email
+    /// address with a copy button.
+    ResponsibleEmail {
+        /// Visible email address (the first label as the local part and the
+        /// remaining labels as the domain).
+        display: String,
+    },
 }
 
 /// One labeled field extracted from record data.
@@ -122,7 +130,7 @@ pub(crate) fn rdata_fields(rdata: &RData) -> Vec<RdataField> {
         ],
         RData::SOA(soa) => vec![
             primary_server_field("Primary Server", soa.mname.to_string()),
-            text("Responsible Person", soa.rname.to_string()),
+            responsible_person_field("Responsible Person", &soa.rname),
             text("Serial", soa.serial.to_string()),
             text("Refresh", soa.refresh.to_string()),
             text("Retry", soa.retry.to_string()),
@@ -318,6 +326,49 @@ fn mailto_address(text: &str) -> Option<String> {
     } else {
         Some(address.to_string())
     }
+}
+
+/// Builds the SOA responsible-person field, rendering the `rname` mailbox
+/// as an email address with a copy button when it can be formed.
+///
+/// Falls back to plain text (the raw `rname` presentation form) when the
+/// name has no usable local-part/domain split — e.g. the root name or a
+/// single label with no domain.
+fn responsible_person_field(label: &'static str, rname: &Name) -> RdataField {
+    match rname_to_email(rname) {
+        Some(display) => RdataField {
+            label,
+            value: RdataValue::ResponsibleEmail { display },
+        },
+        None => text(label, rname.to_string()),
+    }
+}
+
+/// Converts an SOA `rname` (DNS mailbox form) into an email address.
+///
+/// In the DNS wire format the first label is the mailbox local-part and the
+/// remaining labels are the domain, so `admin.example.com.` becomes
+/// `admin@example.com`. Labels are read as raw bytes via `Name::iter`, so a
+/// dot escaped in the local part (e.g. `email\.name.example.com.`) comes
+/// through as a literal dot: `email.name@example.com`.
+///
+/// Returns `None` when there is no local-part, the local-part is empty, or
+/// there is no domain (root name or a single label), so the caller can fall
+/// back to plain text.
+fn rname_to_email(rname: &Name) -> Option<String> {
+    let mut labels = rname.iter();
+    let local_bytes = labels.next()?;
+    if local_bytes.is_empty() {
+        return None;
+    }
+    let domain = labels
+        .map(|label| String::from_utf8_lossy(label).into_owned())
+        .collect::<Vec<_>>();
+    if domain.is_empty() {
+        return None;
+    }
+    let local = String::from_utf8_lossy(local_bytes);
+    Some(format!("{local}@{}", domain.join(".")))
 }
 
 fn hex_lower(bytes: &[u8]) -> String {
@@ -602,7 +653,12 @@ mod tests {
                         display: "ns1.example".to_string()
                     }
                 },
-                text("Responsible Person", "admin.example."),
+                RdataField {
+                    label: "Responsible Person",
+                    value: RdataValue::ResponsibleEmail {
+                        display: "admin@example".to_string()
+                    }
+                },
                 text("Serial", "2026010101"),
                 text("Refresh", "7200"),
                 text("Retry", "3600"),
@@ -610,6 +666,84 @@ mod tests {
                 text("Minimum", "3600"),
             ]
         );
+    }
+
+    #[test]
+    fn rname_to_email_maps_first_label_to_local_part() {
+        // GIVEN an SOA rname in DNS mailbox form
+        // WHEN converted
+        let email = rname_to_email(&name("admin.example.com."));
+        // THEN the first label is the local part and the rest is the domain.
+        assert_eq!(email, Some("admin@example.com".to_string()));
+    }
+
+    #[test]
+    fn rname_to_email_keeps_escaped_dot_in_local_part() {
+        // GIVEN an rname whose local part carries an escaped dot
+        // WHEN converted
+        let email = rname_to_email(&name("email\\.name.example.com."));
+        // THEN the escaped dot becomes a literal dot in the local part.
+        assert_eq!(email, Some("email.name@example.com".to_string()));
+    }
+
+    #[test]
+    fn rname_to_email_joins_multi_label_domain() {
+        // GIVEN an rname with a multi-label domain after the local part
+        // WHEN converted
+        let email = rname_to_email(&name("host.admin.example.com."));
+        // THEN all remaining labels form the domain.
+        assert_eq!(email, Some("host@admin.example.com".to_string()));
+    }
+
+    #[test]
+    fn rname_to_email_root_is_none() {
+        // GIVEN the root name (no labels)
+        // WHEN converted
+        let email = rname_to_email(&Name::root());
+        // THEN there is no email address.
+        assert_eq!(email, None);
+    }
+
+    #[test]
+    fn rname_to_email_single_label_is_none() {
+        // GIVEN an rname with only a local part and no domain
+        // WHEN converted
+        let email = rname_to_email(&name("admin."));
+        // THEN there is no email address (no domain to append).
+        assert_eq!(email, None);
+    }
+
+    #[test]
+    fn responsible_person_field_falls_back_to_text_for_single_label() {
+        // GIVEN an SOA rname that cannot form an email
+        // WHEN the field is built
+        let field = responsible_person_field("Responsible Person", &name("admin."));
+        // THEN it falls back to plain text with the raw presentation form.
+        assert_eq!(field, text("Responsible Person", "admin."));
+    }
+
+    #[test]
+    fn responsible_person_field_falls_back_to_text_for_root() {
+        // GIVEN the root rname (no labels)
+        // WHEN the field is built
+        let field = responsible_person_field("Responsible Person", &Name::root());
+        // THEN it falls back to plain text with the root presentation form.
+        assert_eq!(field, text("Responsible Person", "."));
+    }
+
+    #[test]
+    fn rname_to_email_is_lossy_for_invalid_utf8() {
+        // GIVEN an rname whose local part carries an invalid UTF-8 byte
+        let rname = Name::from_labels(vec![
+            [0xffu8, 0x61].as_slice(),
+            b"example".as_slice(),
+            b"com".as_slice(),
+        ])
+        .expect("rname");
+        // WHEN converted
+        let email = rname_to_email(&rname);
+        // THEN the invalid byte is replaced with the replacement character.
+        assert_eq!(email, Some("\u{FFFD}a@example.com".to_string()));
     }
 
     #[test]

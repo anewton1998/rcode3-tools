@@ -165,6 +165,9 @@ fn record_block(record: &Record, received: DateTime<Utc>) -> String {
                 RdataValue::ServiceTarget { display } => host_query_value_html(&display, "target"),
                 RdataValue::CaaIssuer { display } => host_query_value_html(&display, "CAA value"),
                 RdataValue::CaaEmail { display } => copy_value_html(&display, "email address"),
+                RdataValue::ResponsibleEmail { display } => {
+                    copy_value_html(&display, "email address")
+                }
             };
             rows.push(row_with_class(field.label, "wrap_value", value));
         }
@@ -413,6 +416,7 @@ fn escape(text: &str) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use hickory_proto::rr::Name;
     use hickory_proto::rr::RData;
     use hickory_proto::rr::rdata::{A, AAAA, CAA, CNAME, MX, NAPTR, NS, PTR, SOA, SRV, TXT};
     use std::net::{Ipv4Addr, Ipv6Addr};
@@ -1090,6 +1094,122 @@ mod tests {
                 "Primary Server</td><td class=\"wrap_value\">ns1.example.com <span class=\"ns_query_suffix\">(<span class=\"ns_query_glyph\" aria-hidden=\"true\">\u{2315}</span> <a class=\"ns_query_link\" href=\"?name=ns1.example.com&amp;type=A\" title=\"Query A records for ns1.example.com\" aria-label=\"Query A records for ns1.example.com\" data-ns-query=\"ns1.example.com\" data-ns-query-type=\"A\">A</a> <a class=\"ns_query_link\" href=\"?name=ns1.example.com&amp;type=AAAA\" title=\"Query AAAA records for ns1.example.com\" aria-label=\"Query AAAA records for ns1.example.com\" data-ns-query=\"ns1.example.com\" data-ns-query-type=\"AAAA\">AAAA</a> <a class=\"ns_query_link\" href=\"../rdap-explorer?query=ns1.example.com&amp;type=nameserver\" title=\"Query RDAP for ns1.example.com\" aria-label=\"Query RDAP for ns1.example.com\">RDAP</a>)</span> <button type=\"button\" class=\"copy_btn\" title=\"Copy primary server to clipboard\" aria-label=\"Copy ns1.example.com to clipboard\" data-copy-value=\"ns1.example.com\"><svg xmlns=\"http://www.w3.org/2000/svg\" width=\"24\" height=\"24\" viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"2\" stroke-linecap=\"round\" stroke-linejoin=\"round\" class=\"copy-icon\"><rect width=\"8\" height=\"4\" x=\"8\" y=\"2\" rx=\"1\" ry=\"1\"/><path d=\"M16 4h2a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h2\"/></svg><svg xmlns=\"http://www.w3.org/2000/svg\" width=\"24\" height=\"24\" viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"2\" stroke-linecap=\"round\" stroke-linejoin=\"round\" class=\"check-icon\" style=\"display:none\"><path d=\"M20 6 9 17l-5-5\"/></svg></button></td>"
             ),
             "{html}"
+        );
+    }
+
+    #[test]
+    fn soa_record_renders_responsible_person_email_copy_button_only() {
+        // GIVEN an SOA record whose responsible person is a mailbox name
+        let mut message = Message::new(
+            33,
+            hickory_proto::op::MessageType::Response,
+            hickory_proto::op::OpCode::Query,
+        );
+        message.metadata.response_code = ResponseCode::NoError;
+        message.add_answer(soa_record(
+            "example.com.",
+            "ns1.example.com.",
+            "admin.example.com.",
+            300,
+        ));
+
+        // WHEN rendered
+        let html = render_message(&message, received());
+
+        // THEN the Responsible Person cell renders the email address with a
+        // copy button only — no A/AAAA query links and no RDAP link. (The
+        // negative checks are scoped to this row: the SOA Primary Server
+        // row in the same record legitimately carries query links.)
+        assert!(
+            html.contains(
+                "Responsible Person</td><td class=\"wrap_value\">admin@example.com <button type=\"button\" class=\"copy_btn\" title=\"Copy email address to clipboard\" aria-label=\"Copy admin@example.com to clipboard\" data-copy-value=\"admin@example.com\"><svg xmlns=\"http://www.w3.org/2000/svg\" width=\"24\" height=\"24\" viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"2\" stroke-linecap=\"round\" stroke-linejoin=\"round\" class=\"copy-icon\"><rect width=\"8\" height=\"4\" x=\"8\" y=\"2\" rx=\"1\" ry=\"1\"/><path d=\"M16 4h2a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h2\"/></svg><svg xmlns=\"http://www.w3.org/2000/svg\" width=\"24\" height=\"24\" viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"2\" stroke-linecap=\"round\" stroke-linejoin=\"round\" class=\"check-icon\" style=\"display:none\"><path d=\"M20 6 9 17l-5-5\"/></svg></button></td>"
+            ),
+            "{html}"
+        );
+        let responsible_row = html
+            .split("<tr>")
+            .find(|row| row.starts_with("<td class=\"data_key\">Responsible Person</td>"))
+            .expect("responsible person row");
+        assert!(
+            !responsible_row.contains("data-ns-query"),
+            "responsible person email must not carry A/AAAA query links: {responsible_row}"
+        );
+        assert!(
+            !responsible_row.contains("type=nameserver"),
+            "responsible person email must not carry an RDAP nameserver link: {responsible_row}"
+        );
+    }
+
+    #[test]
+    fn soa_record_escapes_hostile_responsible_person_email() {
+        // GIVEN an SOA whose responsible-person local part carries markup
+        let rname = Name::from_labels(vec![
+            b"<script>".as_slice(),
+            b"example".as_slice(),
+            b"com".as_slice(),
+        ])
+        .expect("rname");
+        let mut message = Message::new(
+            34,
+            hickory_proto::op::MessageType::Response,
+            hickory_proto::op::OpCode::Query,
+        );
+        message.metadata.response_code = ResponseCode::NoError;
+        message.add_answer(Record::from_rdata(
+            "example.com.".parse().expect("name"),
+            300,
+            RData::SOA(SOA::new(
+                "ns1.example.com.".parse().expect("mname"),
+                rname,
+                2026010101,
+                7200,
+                3600,
+                1209600,
+                3600,
+            )),
+        ));
+
+        // WHEN rendered
+        let html = render_message(&message, received());
+
+        // THEN the markup is escaped in both the visible text and the copy
+        // value, and no live script tag survives.
+        assert!(!html.contains("<script>"), "{html}");
+        assert!(html.contains("&lt;script&gt;@example.com"), "{html}");
+        assert!(
+            html.contains("data-copy-value=\"&lt;script&gt;@example.com\""),
+            "{html}"
+        );
+    }
+
+    #[test]
+    fn soa_record_renders_single_label_responsible_person_as_plain_text() {
+        // GIVEN an SOA whose responsible person has no domain (one label)
+        let mut message = Message::new(
+            35,
+            hickory_proto::op::MessageType::Response,
+            hickory_proto::op::OpCode::Query,
+        );
+        message.metadata.response_code = ResponseCode::NoError;
+        message.add_answer(soa_record(
+            "example.com.",
+            "ns1.example.com.",
+            "admin.",
+            300,
+        ));
+
+        // WHEN rendered
+        let html = render_message(&message, received());
+
+        // THEN the Responsible Person row is plain text with no copy button.
+        let responsible_row = html
+            .split("<tr>")
+            .find(|row| row.starts_with("<td class=\"data_key\">Responsible Person</td>"))
+            .expect("responsible person row");
+        assert!(responsible_row.contains("admin."), "{responsible_row}");
+        assert!(
+            !responsible_row.contains("copy_btn"),
+            "single-label responsible person must not render a copy button: {responsible_row}"
         );
     }
 
