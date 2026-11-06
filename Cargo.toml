@@ -7,6 +7,7 @@ members = [
     "crates/ui-components",
     "crates/rdap-wasm",
     "crates/dns-wasm",
+    "crates/support-bin",
     "apps/rdap-explorer",
     "apps/dns-explorer",
     "apps/rcode3-tools",
@@ -18,6 +19,7 @@ resolver = "2"
 askama = { version = "0.16", features = ["full"] }
 axum = "0.8"
 base64 = "0.22"
+clap = { version = "4", features = ["derive"] }
 dotenvy = "0.15"
 hickory-proto = "0.26"
 reqwest = { version = "0.13", default-features = false, features = ["rustls"] }

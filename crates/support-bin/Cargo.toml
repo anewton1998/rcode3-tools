@@ -1,0 +1,19 @@
+[package]
+name = "support-bin"
+version.workspace = true
+edition.workspace = true
+
+# Support binaries for the rcode3-tools workspace. The library half holds the
+# pure, offline-testable logic; the binary half is a thin CLI over it.
+[[bin]]
+name = "psl-extract"
+path = "src/main.rs"
+
+[dependencies]
+chrono = "0.4"
+clap.workspace = true
+# reqwest already carries the rustls backend via the workspace entry; the
+# `blocking` feature turns it into a one-shot client so the CLI needs no
+# async runtime.
+reqwest = { workspace = true, features = ["blocking"] }
+thiserror = "2"
