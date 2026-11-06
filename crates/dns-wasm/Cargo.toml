@@ -17,7 +17,9 @@ chrono = "0.4"
 # The `wasm-bindgen` feature swaps in browser-compatible time handling so the
 # crate compiles to wasm32-unknown-unknown; `serde` enables JSON download of
 # parsed messages.
-hickory-proto = { workspace = true, features = ["serde", "wasm-bindgen"] }
+# `dnssec-ring` compiles the `dnssec` module (DS/DNSKEY rdata types) with the
+# ring crypto backend, which builds for both native and wasm32-unknown-unknown.
+hickory-proto = { workspace = true, features = ["serde", "wasm-bindgen", "dnssec-ring"] }
 # Reuses the shared reverse-DNS name builder so A/AAAA addresses link to PTR
 # queries with the same mapping used by the RDAP explorer's rdns query types.
 icann-rdap-common.workspace = true
@@ -35,6 +37,12 @@ reqwest.workspace = true
 # hickory-proto's rand (query ids) bottoms out in getrandom, which needs the
 # wasm_js backend to compile for the browser.
 getrandom = { version = "0.4", features = ["wasm_js"] }
+# The `dnssec-ring` feature pulls ring, whose `SystemRandom` only implements
+# `SecureRandom` on wasm32-unknown-unknown when ring's own
+# `wasm32_unknown_unknown_js` feature is on (it forwards to getrandom 0.2's
+# `js` backend). Enabling it here unifies with the ring instance hickory
+# builds against.
+ring = { version = "0.17", features = ["wasm32_unknown_unknown_js"] }
 
 [dev-dependencies]
 tokio = { version = "1", features = ["rt", "macros"] }

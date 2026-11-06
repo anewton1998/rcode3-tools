@@ -8,6 +8,10 @@
 use std::fmt::Write;
 use std::net::IpAddr;
 
+use base64::Engine;
+use base64::prelude::BASE64_STANDARD;
+use hickory_proto::dnssec::PublicKey;
+use hickory_proto::dnssec::rdata::DNSSECRData;
 use hickory_proto::rr::Name;
 use hickory_proto::rr::RData;
 use hickory_proto::rr::rdata::{A, AAAA};
@@ -79,6 +83,14 @@ pub(crate) enum RdataValue {
         /// Visible email address (the first label as the local part and the
         /// remaining labels as the domain).
         display: String,
+    },
+    /// A raw data blob (e.g. a DS digest, DNSKEY public key or TLSA
+    /// certificate association) rendered as plain text with a copy button.
+    CopyableData {
+        /// Visible encoded value (hex or base64).
+        display: String,
+        /// Kind of value named in the copy tooltip (e.g. `"digest"`).
+        copy_label: &'static str,
     },
 }
 
@@ -157,11 +169,33 @@ pub(crate) fn rdata_fields(rdata: &RData) -> Vec<RdataField> {
             ),
             text("Fingerprint", hex_lower(&sshfp.fingerprint)),
         ],
+        RData::DNSSEC(DNSSECRData::DS(ds)) => vec![
+            text("Key Tag", ds.key_tag().to_string()),
+            text("Algorithm", u8::from(ds.algorithm()).to_string()),
+            text("Digest Type", u8::from(ds.digest_type()).to_string()),
+            copyable_data_field("Digest", hex_lower(ds.digest()), "digest"),
+        ],
+        RData::DNSSEC(DNSSECRData::DNSKEY(dnskey)) => vec![
+            text("Flags", dnskey.flags().to_string()),
+            text(
+                "Algorithm",
+                u8::from(dnskey.public_key().algorithm()).to_string(),
+            ),
+            copyable_data_field(
+                "Public Key",
+                BASE64_STANDARD.encode(dnskey.public_key().public_bytes()),
+                "public key",
+            ),
+        ],
         RData::TLSA(tlsa) => vec![
             text("Cert Usage", u8::from(tlsa.cert_usage).to_string()),
             text("Selector", u8::from(tlsa.selector).to_string()),
             text("Matching", u8::from(tlsa.matching).to_string()),
-            text("Certificate Data", hex_lower(&tlsa.cert_data)),
+            copyable_data_field(
+                "Certificate Data",
+                hex_lower(&tlsa.cert_data),
+                "certificate data",
+            ),
         ],
         RData::NAPTR(naptr) => vec![
             text("Order", naptr.order.to_string()),
@@ -371,6 +405,24 @@ fn rname_to_email(rname: &Name) -> Option<String> {
     Some(format!("{local}@{}", domain.join(".")))
 }
 
+/// Builds a copyable data field (hex or base64 blob) with a copy button.
+///
+/// `copy_label` names the kind of value (e.g. `"digest"`, `"public key"`,
+/// `"certificate data"`) so the copy tooltip reads naturally.
+fn copyable_data_field(
+    label: &'static str,
+    display: impl Into<String>,
+    copy_label: &'static str,
+) -> RdataField {
+    RdataField {
+        label,
+        value: RdataValue::CopyableData {
+            display: display.into(),
+            copy_label,
+        },
+    }
+}
+
 fn hex_lower(bytes: &[u8]) -> String {
     let mut out = String::with_capacity(bytes.len() * 2);
     for byte in bytes {
@@ -384,6 +436,8 @@ fn hex_lower(bytes: &[u8]) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use hickory_proto::dnssec::rdata::{DNSKEY, DS};
+    use hickory_proto::dnssec::{Algorithm as DnsSecAlgorithm, DigestType, PublicKeyBuf};
     use hickory_proto::rr::rdata::sshfp::{Algorithm, FingerprintType};
     use hickory_proto::rr::rdata::tlsa::{CertUsage, Matching, Selector};
     use hickory_proto::rr::rdata::{CAA, CNAME, MX, NAPTR, NS, PTR, SOA, SRV, SSHFP, TLSA, TXT};
@@ -994,15 +1048,103 @@ mod tests {
         // WHEN fields are extracted
         let fields = rdata_fields(&rdata);
 
-        // THEN the certificate association data is lowercase hex.
+        // THEN the certificate association data is lowercase hex with a
+        // copy affordance.
         assert_eq!(
             fields,
             vec![
                 text("Cert Usage", "3"),
                 text("Selector", "0"),
                 text("Matching", "1"),
-                text("Certificate Data", "0a1b2c"),
+                copyable_data_field("Certificate Data", "0a1b2c", "certificate data"),
             ]
+        );
+    }
+
+    #[test]
+    fn rdata_fields_ds_returns_all_ds_fields() {
+        // GIVEN a DS record's rdata
+        let rdata = DS::new(
+            12345,
+            DnsSecAlgorithm::ECDSAP256SHA256,
+            DigestType::SHA256,
+            vec![0xde, 0xad, 0xbe, 0xef],
+        )
+        .into_rdata();
+
+        // WHEN fields are extracted
+        let fields = rdata_fields(&rdata);
+
+        // THEN key tag, algorithm and digest type are plain text and the
+        // digest is a copyable lowercase-hex blob.
+        assert_eq!(
+            fields,
+            vec![
+                text("Key Tag", "12345"),
+                text("Algorithm", "13"),
+                text("Digest Type", "2"),
+                copyable_data_field("Digest", "deadbeef", "digest"),
+            ]
+        );
+    }
+
+    #[test]
+    fn rdata_fields_dnskey_returns_all_dnskey_fields() {
+        // GIVEN a DNSKEY record's rdata (zone key + secure entry point)
+        let rdata = DNSKEY::new(
+            true,
+            true,
+            false,
+            PublicKeyBuf::new(vec![0x01, 0x02], DnsSecAlgorithm::ED25519),
+        )
+        .into_rdata();
+
+        // WHEN fields are extracted
+        let fields = rdata_fields(&rdata);
+
+        // THEN flags and algorithm are plain text and the public key is a
+        // copyable base64 blob.
+        assert_eq!(
+            fields,
+            vec![
+                text("Flags", "257"),
+                text("Algorithm", "15"),
+                copyable_data_field("Public Key", "AQI=", "public key"),
+            ]
+        );
+    }
+
+    #[test]
+    fn rdata_fields_ds_empty_digest_is_empty_copyable_hex() {
+        // GIVEN a DS record with no digest bytes
+        let rdata =
+            DS::new(1, DnsSecAlgorithm::ED25519, DigestType::SHA256, Vec::new()).into_rdata();
+
+        // WHEN fields are extracted
+        let fields = rdata_fields(&rdata);
+
+        // THEN the digest renders as empty copyable hex.
+        assert_eq!(fields[3], copyable_data_field("Digest", "", "digest"));
+    }
+
+    #[test]
+    fn rdata_fields_dnskey_empty_public_key_is_empty_copyable_base64() {
+        // GIVEN a DNSKEY record with no key bytes
+        let rdata = DNSKEY::new(
+            false,
+            true,
+            false,
+            PublicKeyBuf::new(Vec::new(), DnsSecAlgorithm::RSASHA256),
+        )
+        .into_rdata();
+
+        // WHEN fields are extracted
+        let fields = rdata_fields(&rdata);
+
+        // THEN the public key renders as empty copyable base64.
+        assert_eq!(
+            fields[2],
+            copyable_data_field("Public Key", "", "public key")
         );
     }
 
@@ -1070,7 +1212,7 @@ mod tests {
     }
 
     #[test]
-    fn rdata_fields_tlsa_empty_cert_data_is_empty_hex() {
+    fn rdata_fields_tlsa_empty_cert_data_is_empty_copyable_hex() {
         // GIVEN a TLSA record with no certificate association data
         let rdata =
             TLSA::new(CertUsage::PkixTa, Selector::Full, Matching::Raw, Vec::new()).into_rdata();
@@ -1078,8 +1220,11 @@ mod tests {
         // WHEN fields are extracted
         let fields = rdata_fields(&rdata);
 
-        // THEN the certificate data renders as an empty hex string.
-        assert_eq!(fields[3], text("Certificate Data", ""));
+        // THEN the certificate data renders as an empty copyable hex blob.
+        assert_eq!(
+            fields[3],
+            copyable_data_field("Certificate Data", "", "certificate data")
+        );
     }
 
     #[test]

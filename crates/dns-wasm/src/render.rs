@@ -168,6 +168,10 @@ fn record_block(record: &Record, received: DateTime<Utc>) -> String {
                 RdataValue::ResponsibleEmail { display } => {
                     copy_value_html(&display, "email address")
                 }
+                RdataValue::CopyableData {
+                    display,
+                    copy_label,
+                } => copy_value_html(&display, copy_label),
             };
             rows.push(row_with_class(field.label, "wrap_value", value));
         }
@@ -365,6 +369,7 @@ fn copy_button_html(value: &str, label: &str) -> String {
     format!(
         "<button type=\"button\" class=\"copy_btn\" title=\"Copy {label} to clipboard\" aria-label=\"Copy {escaped} to clipboard\" data-copy-value=\"{escaped}\">{COPY_ICON_SVG}{CHECK_ICON_SVG}</button>",
         escaped = escape(value),
+        label = escape(label),
     )
 }
 
@@ -416,9 +421,11 @@ fn escape(text: &str) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use hickory_proto::rr::Name;
-    use hickory_proto::rr::RData;
+    use hickory_proto::dnssec::rdata::{DNSKEY, DS};
+    use hickory_proto::dnssec::{Algorithm as DnsSecAlgorithm, DigestType, PublicKeyBuf};
+    use hickory_proto::rr::rdata::TLSA;
     use hickory_proto::rr::rdata::{A, AAAA, CAA, CNAME, MX, NAPTR, NS, PTR, SOA, SRV, TXT};
+    use hickory_proto::rr::{Name, RData, RecordData};
     use std::net::{Ipv4Addr, Ipv6Addr};
 
     fn a_record(name: &str, ip: Ipv4Addr, ttl: u32) -> Record {
@@ -501,6 +508,48 @@ mod tests {
                 false,
                 url::Url::parse(url).expect("iodef url"),
             )),
+        )
+    }
+
+    fn ds_record(name: &str, ttl: u32) -> Record {
+        Record::from_rdata(
+            name.parse().expect("name"),
+            ttl,
+            DS::new(
+                12345,
+                DnsSecAlgorithm::ECDSAP256SHA256,
+                DigestType::SHA256,
+                vec![0xde, 0xad, 0xbe, 0xef],
+            )
+            .into_rdata(),
+        )
+    }
+
+    fn dnskey_record(name: &str, ttl: u32) -> Record {
+        Record::from_rdata(
+            name.parse().expect("name"),
+            ttl,
+            DNSKEY::new(
+                true,
+                true,
+                false,
+                PublicKeyBuf::new(vec![0x01, 0x02], DnsSecAlgorithm::ED25519),
+            )
+            .into_rdata(),
+        )
+    }
+
+    fn tlsa_record(name: &str, ttl: u32) -> Record {
+        Record::from_rdata(
+            name.parse().expect("name"),
+            ttl,
+            TLSA::new(
+                hickory_proto::rr::rdata::tlsa::CertUsage::DaneEe,
+                hickory_proto::rr::rdata::tlsa::Selector::Full,
+                hickory_proto::rr::rdata::tlsa::Matching::Sha256,
+                vec![0x0a, 0x1b, 0x2c],
+            )
+            .into_rdata(),
         )
     }
 
@@ -1210,6 +1259,75 @@ mod tests {
         assert!(
             !responsible_row.contains("copy_btn"),
             "single-label responsible person must not render a copy button: {responsible_row}"
+        );
+    }
+
+    #[test]
+    fn ds_record_renders_digest_copy_button() {
+        // GIVEN a DS record
+        let mut message = Message::new(
+            36,
+            hickory_proto::op::MessageType::Response,
+            hickory_proto::op::OpCode::Query,
+        );
+        message.metadata.response_code = ResponseCode::NoError;
+        message.add_answer(ds_record("example.com.", 300));
+
+        // WHEN rendered
+        let html = render_message(&message, received());
+
+        // THEN the Digest cell renders the hex value with a copy button.
+        assert!(
+            html.contains(
+                "Digest</td><td class=\"wrap_value\">deadbeef <button type=\"button\" class=\"copy_btn\" title=\"Copy digest to clipboard\" aria-label=\"Copy deadbeef to clipboard\" data-copy-value=\"deadbeef\">"
+            ),
+            "{html}"
+        );
+    }
+
+    #[test]
+    fn dnskey_record_renders_public_key_copy_button() {
+        // GIVEN a DNSKEY record
+        let mut message = Message::new(
+            37,
+            hickory_proto::op::MessageType::Response,
+            hickory_proto::op::OpCode::Query,
+        );
+        message.metadata.response_code = ResponseCode::NoError;
+        message.add_answer(dnskey_record("example.com.", 300));
+
+        // WHEN rendered
+        let html = render_message(&message, received());
+
+        // THEN the Public Key cell renders the base64 value with a copy button.
+        assert!(
+            html.contains(
+                "Public Key</td><td class=\"wrap_value\">AQI= <button type=\"button\" class=\"copy_btn\" title=\"Copy public key to clipboard\" aria-label=\"Copy AQI= to clipboard\" data-copy-value=\"AQI=\""
+            ),
+            "{html}"
+        );
+    }
+
+    #[test]
+    fn tlsa_record_renders_certificate_data_copy_button() {
+        // GIVEN a TLSA record
+        let mut message = Message::new(
+            38,
+            hickory_proto::op::MessageType::Response,
+            hickory_proto::op::OpCode::Query,
+        );
+        message.metadata.response_code = ResponseCode::NoError;
+        message.add_answer(tlsa_record("example.com.", 300));
+
+        // WHEN rendered
+        let html = render_message(&message, received());
+
+        // THEN the Certificate Data cell renders the hex value with a copy button.
+        assert!(
+            html.contains(
+                "Certificate Data</td><td class=\"wrap_value\">0a1b2c <button type=\"button\" class=\"copy_btn\" title=\"Copy certificate data to clipboard\" aria-label=\"Copy 0a1b2c to clipboard\" data-copy-value=\"0a1b2c\">"
+            ),
+            "{html}"
         );
     }
 
