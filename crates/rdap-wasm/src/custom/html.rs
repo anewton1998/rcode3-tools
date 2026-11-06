@@ -1,3 +1,7 @@
+use std::net::IpAddr;
+
+use icann_rdap_common::rdns::ip_to_reverse_dns;
+
 /// Wraps the rendered parts in a top-level results container, tagged with
 /// the in-page anchor `id` when `anchor` is non-empty so the result tree
 /// can link to this response body.
@@ -288,8 +292,32 @@ pub(crate) fn lookup_with_scopes(value: &str, base_code: &str, display: &str) ->
 
 /// Address/CIDR convenience wrapper around [`lookup_with_scopes`] where the
 /// link simply displays the value itself.
+///
+/// Bare addresses (a `base_code` ending in `_addr`) additionally get a
+/// trailing cross-app reverse-query `PTR` link (see
+/// [`ptr_query_link_html`]) appended after the scope icons, so the cell
+/// reads `(⌕ … PTR)`. CIDRs and other prefixes get no `PTR`, since a
+/// reverse query against a prefix is meaningless. The no-`PTR` path
+/// renders byte-identically to [`lookup_with_scopes`].
 pub(crate) fn addr_with_scopes(value: &str, base_code: &str) -> String {
-    lookup_with_scopes(value, base_code, &mono(value))
+    if value.is_empty() {
+        return mono(value);
+    }
+    let icons = scope_links(value, base_code);
+    let ptr = if base_code.ends_with("_addr") {
+        ptr_query_link_html(value)
+    } else {
+        String::new()
+    };
+    let inner = if ptr.is_empty() {
+        format!("\u{2315}{icons}")
+    } else {
+        format!("\u{2315}{icons} {ptr}")
+    };
+    format!(
+        "{} ({inner})",
+        lookup_action(value, base_code, &mono(value))
+    )
 }
 
 /// Percent-encodes a value for safe inclusion in a URL query component,
@@ -344,6 +372,40 @@ pub(crate) fn dns_query_suffix_html(name: &str) -> String {
     let aaaa_label = escape_attr(&format!("Query AAAA records for {name}"));
     format!(
         "<span class=\"ns_query_suffix\">(<span class=\"ns_query_glyph\" aria-hidden=\"true\">\u{2315}</span> <a class=\"ns_query_link\" href=\"{a_href}\" title=\"{a_label}\" aria-label=\"{a_label}\">A</a> <a class=\"ns_query_link\" href=\"{aaaa_href}\" title=\"{aaaa_label}\" aria-label=\"{aaaa_label}\">AAAA</a>)</span>"
+    )
+}
+
+/// Renders a single cross-app DNS reverse-query (`PTR`) link for a bare IP
+/// address, linking to the sibling DNS Explorer mounted at
+/// `../dns-explorer` and running a PTR query against the address's
+/// reverse-DNS name.
+///
+/// The address is parsed as a [`std::net::IpAddr`] first: a value that is
+/// not a bare IP (a CIDR prefix, a host name, or empty) renders as
+/// nothing, so callers can gate the `PTR` link purely on this function's
+/// output. The reverse name is computed by [`ip_to_reverse_dns`] (the same
+/// helper the DNS Explorer uses), so the link target is the canonical
+/// `*.in-addr.arpa` / `*.ip6.arpa` form rather than a raw IP. An
+/// IPv4-mapped IPv6 address (`::ffff:1.2.3.4`) follows the same
+/// nibble-reversed `ip6.arpa` convention as the DNS Explorer's own
+/// reverse links, rather than being folded back into `in-addr.arpa`.
+///
+/// The reverse name is percent-encoded for the query component (see
+/// [`percent_encode_query`]) and the href is then HTML-escaped, mirroring
+/// [`dns_query_suffix_html`]. The `title`/`aria-label` keep the raw
+/// address so tooltips stay human-readable.
+pub(crate) fn ptr_query_link_html(ip: &str) -> String {
+    // Trim before parsing so a stray-padded value still yields a link,
+    // matching the DNS Explorer's `ip_to_reverse_dns` export.
+    let Ok(addr) = ip.trim().parse::<IpAddr>() else {
+        return String::new();
+    };
+    let reverse = ip_to_reverse_dns(&addr);
+    let enc = percent_encode_query(&reverse);
+    let href = escape_attr(&format!("../dns-explorer?name={enc}&type=PTR"));
+    let label = escape_attr(&format!("Query PTR for {}", ip.trim()));
+    format!(
+        "<a class=\"ns_query_link\" href=\"{href}\" title=\"{label}\" aria-label=\"{label}\">PTR</a>"
     )
 }
 
@@ -550,6 +612,89 @@ mod tests {
         // THEN the `%` is encoded to `%25` so the receiver decodes it
         // back to the literal `%41`, not to `A`.
         assert!(html.contains("name=%2541&amp;type=A"), "{html}");
+    }
+
+    #[test]
+    fn ptr_query_link_renders_v4_reverse_arpa_link() {
+        // GIVEN a bare IPv4 address
+        let html = ptr_query_link_html("192.0.2.1");
+
+        // THEN it is a single PTR query link to the reverse-arpa name
+        assert!(html.contains("class=\"ns_query_link\""), "{html}");
+        assert!(html.contains(">PTR</a>"), "missing PTR label: {html}");
+        assert!(
+            html.contains("href=\"../dns-explorer?name=1.2.0.192.in-addr.arpa&amp;type=PTR\""),
+            "missing/incorrect PTR href: {html}"
+        );
+        assert_eq!(html.matches("class=\"ns_query_link\"").count(), 1, "{html}");
+    }
+
+    #[test]
+    fn ptr_query_link_renders_v6_reverse_arpa_link() {
+        // GIVEN a bare IPv6 address
+        let html = ptr_query_link_html("2001:db8::1");
+
+        // THEN it targets the nibble-reversed ip6.arpa name with type=PTR
+        assert!(html.contains("ip6.arpa&amp;type=PTR"), "{html}");
+        assert!(html.contains(">PTR</a>"), "{html}");
+    }
+
+    #[test]
+    fn ptr_query_link_non_ip_renders_nothing() {
+        // GIVEN values that are not bare IPs (a CIDR, a host name, empty)
+        // WHEN/THEN none of them produce a PTR link
+        assert_eq!(ptr_query_link_html("192.0.2.0/24"), "");
+        assert_eq!(ptr_query_link_html("2001:db8::/32"), "");
+        assert_eq!(ptr_query_link_html("example.com"), "");
+        assert_eq!(ptr_query_link_html(""), "");
+    }
+
+    #[test]
+    fn addr_with_scopes_appends_ptr_after_icons_for_bare_address() {
+        // GIVEN a bare IPv4 address cell
+        let html = addr_with_scopes("192.0.2.1", "ip_v4_addr");
+
+        // THEN the PTR link is present and sits AFTER the top scope icon
+        assert!(html.contains("type=PTR"), "missing PTR link: {html}");
+        let icon = html.find("rdap-icon rdap-top").expect("top icon: {html}");
+        let ptr = html.find(">PTR</a>").expect("PTR link: {html}");
+        assert!(icon < ptr, "PTR should trail the scope icons: {html}");
+    }
+
+    #[test]
+    fn addr_with_scopes_omits_ptr_for_cidr() {
+        // GIVEN a CIDR prefix cell
+        let html = addr_with_scopes("192.0.2.0/24", "ip_v4_cidr");
+
+        // THEN no PTR link is emitted (reverse query on a prefix is meaningless)
+        assert!(
+            !html.contains("type=PTR"),
+            "CIDR should have no PTR: {html}"
+        );
+        assert!(html.contains("(\u{2315}"), "missing search glyph: {html}");
+    }
+
+    #[test]
+    fn addr_with_scopes_no_ptr_path_matches_lookup_with_scopes() {
+        // GIVEN values that do NOT get a PTR link (CIDRs, empty, and a
+        // host name under an `_addr` code that fails to parse as an IP)
+        let cases = [
+            ("192.0.2.0/24", "ip_v4_cidr"),
+            ("2001:db8::/32", "ip_v6_cidr"),
+            ("example.com", "ip_v4_addr"),
+            ("", "ip_v6_addr"),
+        ];
+
+        // WHEN/THEN the no-PTR render is byte-identical to the plain
+        // `lookup_with_scopes` treatment (defense-in-depth: a mismatched
+        // code/value falls back to the plain path).
+        for (v, c) in cases {
+            assert_eq!(
+                addr_with_scopes(v, c),
+                lookup_with_scopes(v, c, &mono(v)),
+                "no-PTR path diverged for {v:?} / {c}"
+            );
+        }
     }
 
     #[test]

@@ -171,6 +171,36 @@ mod tests {
     }
 
     #[test]
+    fn bare_addresses_carry_ptr_link_but_cidrs_do_not() {
+        // GIVEN a network with bare start/end addresses and a CIDR entry
+        let json = r#"{
+            "objectClassName": "network",
+            "handle": "NET-1",
+            "startAddress": "192.0.2.1",
+            "endAddress": "2001:db8::1",
+            "cidr0_cidrs": [{"v4prefix": "192.0.2.0", "length": 24}]
+        }"#;
+        let net: Network = serde_json::from_str(json).unwrap();
+
+        // WHEN rendered
+        let html = network_html(&net, "rdap.example", "");
+
+        // THEN the bare addresses carry a PTR link to their reverse-arpa names
+        assert!(
+            html.contains("../dns-explorer?name=1.2.0.192.in-addr.arpa&amp;type=PTR"),
+            "missing v4 PTR link: {html}"
+        );
+        assert!(
+            html.contains("ip6.arpa&amp;type=PTR"),
+            "missing v6 PTR link: {html}"
+        );
+        // and the PTR trails the scope icons (end placement)
+        let icon = html.find("rdap-icon rdap-top").expect("top icon: {html}");
+        let ptr = html.find(">PTR</a>").expect("PTR link: {html}");
+        assert!(icon < ptr, "PTR should trail the scope icons: {html}");
+    }
+
+    #[test]
     fn cidr_without_length_still_gets_scope_icons() {
         // GIVEN a CIDR entry with no length
         let json = r#"{

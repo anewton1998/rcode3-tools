@@ -20,8 +20,8 @@ use icann_rdap_common::prelude::{
 
 use super::common::append_common;
 use super::html::{
-    escape, kv_table, lookup_action, lookup_with_scopes, mono, off_site_link, render, row, section,
-    str_opt, with_copy,
+    addr_with_scopes, escape, kv_table, lookup_action, lookup_with_scopes, mono, off_site_link,
+    render, row, section, str_opt, with_copy,
 };
 
 /// Renders an AS number as an `AS{n}` scoped-lookup link with a copy button
@@ -43,6 +43,10 @@ fn as_lookup_link(n: &Numberish<u32>) -> String {
 /// Renders an IP address or CIDR prefix as a scoped-lookup link with a copy
 /// button. The query-type base is chosen by address family (v6 when the value
 /// contains a colon) and by whether it carries a `/` prefix length.
+///
+/// Routed through [`addr_with_scopes`] so bare addresses also carry the
+/// cross-app `(⌕ … PTR)` reverse-query link; CIDR prefixes (a `_cidr` base
+/// code) are excluded from the `PTR` link automatically.
 fn ip_lookup(s: &str) -> String {
     let base = match (s.contains(':'), s.contains('/')) {
         (true, true) => "ip_v6_cidr",
@@ -50,7 +54,7 @@ fn ip_lookup(s: &str) -> String {
         (false, true) => "ip_v4_cidr",
         (false, false) => "ip_v4_addr",
     };
-    with_copy(lookup_with_scopes(s, base, &mono(s)), s)
+    with_copy(addr_with_scopes(s, base), s)
 }
 
 /// A two-column table of RPKI digests (algorithm / digest).

@@ -165,6 +165,35 @@ mod tests {
     }
 
     #[test]
+    fn nameserver_ips_carry_ptr_reverse_query_link() {
+        // GIVEN a nameserver with a v4 and a v6 address
+        let json = r#"{
+            "objectClassName": "nameserver",
+            "handle": "NS1-X",
+            "ldhName": "ns1.example.com",
+            "ipAddresses": {"v4": ["192.0.2.1"], "v6": ["2001:db8::1"]}
+        }"#;
+        let ns: Nameserver = serde_json::from_str(json).unwrap();
+
+        // WHEN rendered
+        let html = nameserver_html(&ns, "rdap.example", "");
+
+        // THEN each address row carries a PTR link to its reverse-arpa name
+        assert!(
+            html.contains("../dns-explorer?name=1.2.0.192.in-addr.arpa&amp;type=PTR"),
+            "missing v4 PTR link: {html}"
+        );
+        assert!(
+            html.contains("ip6.arpa&amp;type=PTR"),
+            "missing v6 PTR link: {html}"
+        );
+        // and the PTR trails the scope icons (end placement)
+        let icon = html.find("rdap-icon rdap-top").expect("top icon: {html}");
+        let ptr = html.find(">PTR</a>").expect("PTR link: {html}");
+        assert!(icon < ptr, "PTR should trail the scope icons: {html}");
+    }
+
+    #[test]
     fn nameserver_name_and_ips_have_copy_buttons() {
         // GIVEN a nameserver with a name and v4/v6 addresses
         let json = r#"{
