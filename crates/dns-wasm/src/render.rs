@@ -196,25 +196,28 @@ fn nameserver_value_html(display: &str) -> String {
     )
 }
 
-/// Renders the `(⌕ A AAAA)` suffix for a nameserver value.
+/// Renders the `(⌕ A AAAA RDAP)` suffix for a nameserver value.
 ///
 /// The magnifier is shared decorative chrome (`aria-hidden`); `A` and
-/// `AAAA` are separate clickable links that run in-page DNS queries for
-/// the nameserver's address records. Each link carries `data-ns-query`
-/// and `data-ns-query-type` so the explorer's delegated click handler
-/// can run the lookup in place while modifier-clicks fall through to the
-/// browser's open-in-new-tab behavior.
+/// `AAAA` are in-page DNS queries carrying `data-ns-query` /
+/// `data-ns-query-type` for the explorer's delegated click handler,
+/// while `RDAP` is a cross-app navigation link to the RDAP Explorer
+/// using the `nameserver` query type. Modifier-clicks on the DNS links
+/// fall through to the browser's open-in-new-tab behavior; the RDAP
+/// link always navigates.
 ///
 /// The href is HTML-escaped but not percent-encoded: nameserver names are
 /// `[a-z0-9.-]`, so the query string is already URL-safe.
 fn nameserver_query_suffix_html(display: &str) -> String {
     let a_href = escape(&format!("?name={display}&type=A"));
     let aaaa_href = escape(&format!("?name={display}&type=AAAA"));
+    let rdap_href = escape(&format!("../rdap-explorer?query={display}&type=nameserver"));
     let a_label = escape(&format!("Query A records for {display}"));
     let aaaa_label = escape(&format!("Query AAAA records for {display}"));
+    let rdap_label = escape(&format!("Query RDAP for {display}"));
     let escaped = escape(display);
     format!(
-        "<span class=\"ns_query_suffix\">(<span class=\"ns_query_glyph\" aria-hidden=\"true\">\u{2315}</span> <a class=\"ns_query_link\" href=\"{a_href}\" title=\"{a_label}\" aria-label=\"{a_label}\" data-ns-query=\"{escaped}\" data-ns-query-type=\"A\">A</a> <a class=\"ns_query_link\" href=\"{aaaa_href}\" title=\"{aaaa_label}\" aria-label=\"{aaaa_label}\" data-ns-query=\"{escaped}\" data-ns-query-type=\"AAAA\">AAAA</a>)</span>"
+        "<span class=\"ns_query_suffix\">(<span class=\"ns_query_glyph\" aria-hidden=\"true\">\u{2315}</span> <a class=\"ns_query_link\" href=\"{a_href}\" title=\"{a_label}\" aria-label=\"{a_label}\" data-ns-query=\"{escaped}\" data-ns-query-type=\"A\">A</a> <a class=\"ns_query_link\" href=\"{aaaa_href}\" title=\"{aaaa_label}\" aria-label=\"{aaaa_label}\" data-ns-query=\"{escaped}\" data-ns-query-type=\"AAAA\">AAAA</a> <a class=\"ns_query_link\" href=\"{rdap_href}\" title=\"{rdap_label}\" aria-label=\"{rdap_label}\">RDAP</a>)</span>"
     )
 }
 
@@ -849,10 +852,10 @@ mod tests {
         let html = render_message(&message, received());
 
         // THEN the Nameserver cell renders the name (trailing dot stripped)
-        // followed by the (⌕ A AAAA) query suffix and a copy button.
+        // followed by the (⌕ A AAAA RDAP) query suffix and a copy button.
         assert!(
             html.contains(
-                "Nameserver</td><td class=\"wrap_value\">a.iana-servers.net <span class=\"ns_query_suffix\">(<span class=\"ns_query_glyph\" aria-hidden=\"true\">\u{2315}</span> <a class=\"ns_query_link\" href=\"?name=a.iana-servers.net&amp;type=A\" title=\"Query A records for a.iana-servers.net\" aria-label=\"Query A records for a.iana-servers.net\" data-ns-query=\"a.iana-servers.net\" data-ns-query-type=\"A\">A</a> <a class=\"ns_query_link\" href=\"?name=a.iana-servers.net&amp;type=AAAA\" title=\"Query AAAA records for a.iana-servers.net\" aria-label=\"Query AAAA records for a.iana-servers.net\" data-ns-query=\"a.iana-servers.net\" data-ns-query-type=\"AAAA\">AAAA</a>)</span> <button type=\"button\" class=\"copy_btn\" title=\"Copy nameserver to clipboard\" aria-label=\"Copy a.iana-servers.net to clipboard\" data-copy-value=\"a.iana-servers.net\"><svg xmlns=\"http://www.w3.org/2000/svg\" width=\"24\" height=\"24\" viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"2\" stroke-linecap=\"round\" stroke-linejoin=\"round\" class=\"copy-icon\"><rect width=\"8\" height=\"4\" x=\"8\" y=\"2\" rx=\"1\" ry=\"1\"/><path d=\"M16 4h2a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h2\"/></svg><svg xmlns=\"http://www.w3.org/2000/svg\" width=\"24\" height=\"24\" viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"2\" stroke-linecap=\"round\" stroke-linejoin=\"round\" class=\"check-icon\" style=\"display:none\"><path d=\"M20 6 9 17l-5-5\"/></svg></button></td>"
+                "Nameserver</td><td class=\"wrap_value\">a.iana-servers.net <span class=\"ns_query_suffix\">(<span class=\"ns_query_glyph\" aria-hidden=\"true\">\u{2315}</span> <a class=\"ns_query_link\" href=\"?name=a.iana-servers.net&amp;type=A\" title=\"Query A records for a.iana-servers.net\" aria-label=\"Query A records for a.iana-servers.net\" data-ns-query=\"a.iana-servers.net\" data-ns-query-type=\"A\">A</a> <a class=\"ns_query_link\" href=\"?name=a.iana-servers.net&amp;type=AAAA\" title=\"Query AAAA records for a.iana-servers.net\" aria-label=\"Query AAAA records for a.iana-servers.net\" data-ns-query=\"a.iana-servers.net\" data-ns-query-type=\"AAAA\">AAAA</a> <a class=\"ns_query_link\" href=\"../rdap-explorer?query=a.iana-servers.net&amp;type=nameserver\" title=\"Query RDAP for a.iana-servers.net\" aria-label=\"Query RDAP for a.iana-servers.net\">RDAP</a>)</span> <button type=\"button\" class=\"copy_btn\" title=\"Copy nameserver to clipboard\" aria-label=\"Copy a.iana-servers.net to clipboard\" data-copy-value=\"a.iana-servers.net\"><svg xmlns=\"http://www.w3.org/2000/svg\" width=\"24\" height=\"24\" viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"2\" stroke-linecap=\"round\" stroke-linejoin=\"round\" class=\"copy-icon\"><rect width=\"8\" height=\"4\" x=\"8\" y=\"2\" rx=\"1\" ry=\"1\"/><path d=\"M16 4h2a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h2\"/></svg><svg xmlns=\"http://www.w3.org/2000/svg\" width=\"24\" height=\"24\" viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"2\" stroke-linecap=\"round\" stroke-linejoin=\"round\" class=\"check-icon\" style=\"display:none\"><path d=\"M20 6 9 17l-5-5\"/></svg></button></td>"
             ),
             "{html}"
         );
