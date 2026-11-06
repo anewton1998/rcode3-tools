@@ -12,8 +12,11 @@ use base64::Engine;
 use base64::prelude::BASE64_STANDARD;
 use hickory_proto::dnssec::PublicKey;
 use hickory_proto::dnssec::rdata::DNSSECRData;
+use hickory_proto::dnssec::{Algorithm as DnsSecAlgorithm, DigestType};
 use hickory_proto::rr::Name;
 use hickory_proto::rr::RData;
+use hickory_proto::rr::rdata::sshfp::{Algorithm as SshfpAlgorithm, FingerprintType};
+use hickory_proto::rr::rdata::tlsa::{CertUsage, Matching, Selector};
 use hickory_proto::rr::rdata::{A, AAAA};
 use icann_rdap_common::check::StringCheck;
 use icann_rdap_common::rdns::ip_to_reverse_dns;
@@ -162,24 +165,24 @@ pub(crate) fn rdata_fields(rdata: &RData) -> Vec<RdataField> {
             caa_value_field("Value", &caa.value),
         ],
         RData::SSHFP(sshfp) => vec![
-            text("Algorithm", u8::from(sshfp.algorithm).to_string()),
+            text("Algorithm", sshfp_algorithm_label(sshfp.algorithm)),
             text(
                 "Fingerprint Type",
-                u8::from(sshfp.fingerprint_type).to_string(),
+                sshfp_fingerprint_type_label(sshfp.fingerprint_type),
             ),
             text("Fingerprint", hex_lower(&sshfp.fingerprint)),
         ],
         RData::DNSSEC(DNSSECRData::DS(ds)) => vec![
             text("Key Tag", ds.key_tag().to_string()),
-            text("Algorithm", u8::from(ds.algorithm()).to_string()),
-            text("Digest Type", u8::from(ds.digest_type()).to_string()),
+            text("Algorithm", dnssec_algorithm_label(ds.algorithm())),
+            text("Digest Type", digest_type_label(ds.digest_type())),
             copyable_data_field("Digest", hex_lower(ds.digest()), "digest"),
         ],
         RData::DNSSEC(DNSSECRData::DNSKEY(dnskey)) => vec![
-            text("Flags", dnskey.flags().to_string()),
+            text("Flags", dnskey_flags_label(dnskey.flags())),
             text(
                 "Algorithm",
-                u8::from(dnskey.public_key().algorithm()).to_string(),
+                dnssec_algorithm_label(dnskey.public_key().algorithm()),
             ),
             copyable_data_field(
                 "Public Key",
@@ -188,9 +191,9 @@ pub(crate) fn rdata_fields(rdata: &RData) -> Vec<RdataField> {
             ),
         ],
         RData::TLSA(tlsa) => vec![
-            text("Cert Usage", u8::from(tlsa.cert_usage).to_string()),
-            text("Selector", u8::from(tlsa.selector).to_string()),
-            text("Matching", u8::from(tlsa.matching).to_string()),
+            text("Cert Usage", cert_usage_label(tlsa.cert_usage)),
+            text("Selector", selector_label(tlsa.selector)),
+            text("Matching", matching_label(tlsa.matching)),
             copyable_data_field(
                 "Certificate Data",
                 hex_lower(&tlsa.cert_data),
@@ -421,6 +424,133 @@ fn copyable_data_field(
             copy_label,
         },
     }
+}
+
+/// Formats a numeric DNS parameter as `Name (number)`, mirroring the
+/// record-type label convention (`Address (A)`).
+fn named_value(name: &str, number: u8) -> String {
+    format!("{name} ({number})")
+}
+
+/// Names a DNSSEC algorithm with its IANA mnemonic and number, e.g.
+/// `ECDSAP256SHA256 (13)`. Unknown values render as `Unknown (n)`.
+fn dnssec_algorithm_label(algorithm: DnsSecAlgorithm) -> String {
+    named_value(algorithm.as_str(), u8::from(algorithm))
+}
+
+/// Names a DS digest type per the IANA DS RR Types registry, e.g.
+/// `SHA-256 (2)`. Unknown values render as `Unknown (n)`.
+fn digest_type_label(digest_type: DigestType) -> String {
+    let name = match digest_type {
+        DigestType::SHA1 => "SHA-1",
+        DigestType::SHA256 => "SHA-256",
+        DigestType::SHA384 => "SHA-384",
+        // `DigestType` is `#[non_exhaustive]`; anything newer upstream
+        // (and `Unknown`) keeps its wire number under a plain label.
+        _ => "Unknown",
+    };
+    named_value(name, u8::from(digest_type))
+}
+
+/// Names a DNSKEY flags bitmask with the familiar KSK/ZSK shorthand.
+///
+/// The common shapes get their usual names: `256` (Zone Key) is a ZSK,
+/// `257` (Zone Key + Secure Entry Point) a KSK, and `385` (KSK +
+/// Revoke, RFC 5011) a revoked KSK. Any other mask decomposes the
+/// three defined bits — Zone Key `0x0100`, Revoke `0x0080`, Secure
+/// Entry Point `0x0001` — joined with ` + `; a mask with none of them
+/// set is `Reserved`.
+fn dnskey_flags_label(flags: u16) -> String {
+    let name = match flags {
+        256 => "ZSK".to_string(),
+        257 => "KSK".to_string(),
+        385 => "Revoked KSK".to_string(),
+        other => {
+            let mut parts: Vec<&'static str> = Vec::new();
+            if other & 0b0000_0001_0000_0000 != 0 {
+                parts.push("Zone Key");
+            }
+            if other & 0b0000_0000_1000_0000 != 0 {
+                parts.push("Revoke");
+            }
+            if other & 0b0000_0000_0000_0001 != 0 {
+                parts.push("Secure Entry Point");
+            }
+            if parts.is_empty() {
+                "Reserved".to_string()
+            } else {
+                parts.join(" + ")
+            }
+        }
+    };
+    format!("{name} ({flags})")
+}
+
+/// Names a TLSA certificate-usage value per RFC 6698 §2.1.1, e.g.
+/// `DANE-EE (3)`.
+fn cert_usage_label(usage: CertUsage) -> String {
+    let name = match usage {
+        CertUsage::PkixTa => "PKIX-TA",
+        CertUsage::PkixEe => "PKIX-EE",
+        CertUsage::DaneTa => "DANE-TA",
+        CertUsage::DaneEe => "DANE-EE",
+        CertUsage::Unassigned(_) => "Unassigned",
+        CertUsage::Private => "Private",
+    };
+    named_value(name, u8::from(usage))
+}
+
+/// Names a TLSA selector value per RFC 6698 §2.1.2, e.g.
+/// `SubjectPublicKeyInfo (1)`.
+fn selector_label(selector: Selector) -> String {
+    let name = match selector {
+        Selector::Full => "Full certificate",
+        Selector::Spki => "SubjectPublicKeyInfo",
+        Selector::Unassigned(_) => "Unassigned",
+        Selector::Private => "Private",
+    };
+    named_value(name, u8::from(selector))
+}
+
+/// Names a TLSA matching-type value per RFC 6698 §2.1.3, e.g.
+/// `SHA-256 (1)`.
+fn matching_label(matching: Matching) -> String {
+    let name = match matching {
+        Matching::Raw => "Full",
+        Matching::Sha256 => "SHA-256",
+        Matching::Sha512 => "SHA-512",
+        Matching::Unassigned(_) => "Unassigned",
+        Matching::Private => "Private",
+    };
+    named_value(name, u8::from(matching))
+}
+
+/// Names an SSHFP key algorithm per RFC 4255 §3.1.1 and the IANA SSHFP
+/// registry (Ed25519/Ed448 arrive via RFC 8709 and later assignments),
+/// e.g. `ECDSA (3)`.
+fn sshfp_algorithm_label(algorithm: SshfpAlgorithm) -> String {
+    let name = match algorithm {
+        SshfpAlgorithm::Reserved => "Reserved",
+        SshfpAlgorithm::RSA => "RSA",
+        SshfpAlgorithm::DSA => "DSA",
+        SshfpAlgorithm::ECDSA => "ECDSA",
+        SshfpAlgorithm::Ed25519 => "Ed25519",
+        SshfpAlgorithm::Ed448 => "Ed448",
+        SshfpAlgorithm::Unassigned(_) => "Unassigned",
+    };
+    named_value(name, u8::from(algorithm))
+}
+
+/// Names an SSHFP fingerprint type per RFC 4255 §3.1.2 (updated by
+/// RFC 6594), e.g. `SHA-256 (2)`.
+fn sshfp_fingerprint_type_label(fingerprint_type: FingerprintType) -> String {
+    let name = match fingerprint_type {
+        FingerprintType::Reserved => "Reserved",
+        FingerprintType::SHA1 => "SHA-1",
+        FingerprintType::SHA256 => "SHA-256",
+        FingerprintType::Unassigned(_) => "Unassigned",
+    };
+    named_value(name, u8::from(fingerprint_type))
 }
 
 fn hex_lower(bytes: &[u8]) -> String {
@@ -1023,12 +1153,13 @@ mod tests {
         // WHEN fields are extracted
         let fields = rdata_fields(&rdata);
 
-        // THEN the fingerprint is lowercase hex.
+        // THEN the algorithm and fingerprint type are named with their
+        // numbers, and the fingerprint is lowercase hex.
         assert_eq!(
             fields,
             vec![
-                text("Algorithm", "4"),
-                text("Fingerprint Type", "2"),
+                text("Algorithm", "Ed25519 (4)"),
+                text("Fingerprint Type", "SHA-256 (2)"),
                 text("Fingerprint", "deadbeef"),
             ]
         );
@@ -1048,14 +1179,15 @@ mod tests {
         // WHEN fields are extracted
         let fields = rdata_fields(&rdata);
 
-        // THEN the certificate association data is lowercase hex with a
-        // copy affordance.
+        // THEN the certificate usage, selector and matching type are
+        // named with their numbers, and the certificate association data
+        // is lowercase hex with a copy affordance.
         assert_eq!(
             fields,
             vec![
-                text("Cert Usage", "3"),
-                text("Selector", "0"),
-                text("Matching", "1"),
+                text("Cert Usage", "DANE-EE (3)"),
+                text("Selector", "Full certificate (0)"),
+                text("Matching", "SHA-256 (1)"),
                 copyable_data_field("Certificate Data", "0a1b2c", "certificate data"),
             ]
         );
@@ -1075,14 +1207,15 @@ mod tests {
         // WHEN fields are extracted
         let fields = rdata_fields(&rdata);
 
-        // THEN key tag, algorithm and digest type are plain text and the
-        // digest is a copyable lowercase-hex blob.
+        // THEN key tag is plain text, algorithm and digest type are named
+        // with their numbers, and the digest is a copyable lowercase-hex
+        // blob.
         assert_eq!(
             fields,
             vec![
                 text("Key Tag", "12345"),
-                text("Algorithm", "13"),
-                text("Digest Type", "2"),
+                text("Algorithm", "ECDSAP256SHA256 (13)"),
+                text("Digest Type", "SHA-256 (2)"),
                 copyable_data_field("Digest", "deadbeef", "digest"),
             ]
         );
@@ -1102,15 +1235,187 @@ mod tests {
         // WHEN fields are extracted
         let fields = rdata_fields(&rdata);
 
-        // THEN flags and algorithm are plain text and the public key is a
-        // copyable base64 blob.
+        // THEN flags and algorithm are named with their numbers and the
+        // public key is a copyable base64 blob.
         assert_eq!(
             fields,
             vec![
-                text("Flags", "257"),
-                text("Algorithm", "15"),
+                text("Flags", "KSK (257)"),
+                text("Algorithm", "ED25519 (15)"),
                 copyable_data_field("Public Key", "AQI=", "public key"),
             ]
+        );
+    }
+
+    #[test]
+    fn rdata_fields_dnskey_zone_only_key_is_named_zsk() {
+        // GIVEN a DNSKEY record that is a zone key but not a secure entry
+        // point (flags 256)
+        let rdata = DNSKEY::new(
+            true,
+            false,
+            false,
+            PublicKeyBuf::new(vec![0x01], DnsSecAlgorithm::ECDSAP256SHA256),
+        )
+        .into_rdata();
+
+        // WHEN fields are extracted
+        let fields = rdata_fields(&rdata);
+
+        // THEN the flags render with the ZSK shorthand.
+        assert_eq!(fields[0], text("Flags", "ZSK (256)"));
+    }
+
+    #[test]
+    fn dnskey_flags_label_names_common_shapes_and_decomposes_the_rest() {
+        // GIVEN / WHEN / THEN the familiar shapes get shorthand names.
+        assert_eq!(dnskey_flags_label(256), "ZSK (256)");
+        assert_eq!(dnskey_flags_label(257), "KSK (257)");
+        assert_eq!(dnskey_flags_label(385), "Revoked KSK (385)");
+
+        // GIVEN / WHEN / THEN other masks decompose the defined bits.
+        assert_eq!(dnskey_flags_label(1), "Secure Entry Point (1)");
+        assert_eq!(dnskey_flags_label(384), "Zone Key + Revoke (384)");
+        assert_eq!(dnskey_flags_label(129), "Revoke + Secure Entry Point (129)");
+
+        // GIVEN / WHEN / THEN a mask with no defined bits is Reserved.
+        assert_eq!(dnskey_flags_label(0), "Reserved (0)");
+        assert_eq!(dnskey_flags_label(0b0000_1110_0000_0000), "Reserved (3584)");
+    }
+
+    #[test]
+    fn dnssec_algorithm_label_names_known_and_unknown_values() {
+        // GIVEN / WHEN / THEN known mnemonics come through with numbers.
+        assert_eq!(
+            dnssec_algorithm_label(DnsSecAlgorithm::ECDSAP256SHA256),
+            "ECDSAP256SHA256 (13)"
+        );
+        assert_eq!(
+            dnssec_algorithm_label(DnsSecAlgorithm::ED25519),
+            "ED25519 (15)"
+        );
+
+        // GIVEN / WHEN / THEN unknown numbers render as Unknown with the
+        // wire value preserved.
+        assert_eq!(
+            dnssec_algorithm_label(DnsSecAlgorithm::Unknown(99)),
+            "Unknown (99)"
+        );
+    }
+
+    #[test]
+    fn digest_type_label_names_known_and_unknown_values() {
+        // GIVEN / WHEN / THEN the registered digest types get hyphenated
+        // names.
+        assert_eq!(digest_type_label(DigestType::SHA1), "SHA-1 (1)");
+        assert_eq!(digest_type_label(DigestType::SHA256), "SHA-256 (2)");
+        assert_eq!(digest_type_label(DigestType::SHA384), "SHA-384 (4)");
+
+        // GIVEN / WHEN / THEN an unregistered type keeps its number.
+        assert_eq!(digest_type_label(DigestType::Unknown(3)), "Unknown (3)");
+    }
+
+    #[test]
+    fn rdata_fields_tlsa_unassigned_and_private_values_keep_their_numbers() {
+        // GIVEN a TLSA record with unassigned and private parameter values
+        let rdata = TLSA::new(
+            CertUsage::Unassigned(7),
+            Selector::Private,
+            Matching::Unassigned(3),
+            vec![0x00],
+        )
+        .into_rdata();
+
+        // WHEN fields are extracted
+        let fields = rdata_fields(&rdata);
+
+        // THEN each renders its category name with the wire number
+        // (Private maps to 255).
+        assert_eq!(fields[0], text("Cert Usage", "Unassigned (7)"));
+        assert_eq!(fields[1], text("Selector", "Private (255)"));
+        assert_eq!(fields[2], text("Matching", "Unassigned (3)"));
+
+        // GIVEN a second record with the remaining unassigned/private
+        // shapes
+        let rdata = TLSA::new(
+            CertUsage::DaneEe,
+            Selector::Unassigned(2),
+            Matching::Private,
+            vec![],
+        )
+        .into_rdata();
+
+        // WHEN fields are extracted
+        let fields = rdata_fields(&rdata);
+
+        // THEN they keep their numbers too.
+        assert_eq!(fields[1], text("Selector", "Unassigned (2)"));
+        assert_eq!(fields[2], text("Matching", "Private (255)"));
+    }
+
+    #[test]
+    fn rdata_fields_tlsa_covers_the_remaining_named_usages_and_matchings() {
+        // GIVEN TLSA records over the remaining named parameter values
+        let cases = [
+            (CertUsage::PkixTa, "PKIX-TA (0)"),
+            (CertUsage::PkixEe, "PKIX-EE (1)"),
+            (CertUsage::DaneTa, "DANE-TA (2)"),
+            (CertUsage::Private, "Private (255)"),
+        ];
+        for (usage, expected) in cases {
+            // WHEN fields are extracted
+            let fields = rdata_fields(
+                &TLSA::new(usage, Selector::Spki, Matching::Sha512, vec![]).into_rdata(),
+            );
+
+            // THEN the usage name and number match, alongside the other
+            // named parameters.
+            assert_eq!(fields[0], text("Cert Usage", expected));
+            assert_eq!(fields[1], text("Selector", "SubjectPublicKeyInfo (1)"));
+            assert_eq!(fields[2], text("Matching", "SHA-512 (2)"));
+        }
+    }
+
+    #[test]
+    fn rdata_fields_sshfp_reserved_and_unassigned_values_keep_their_numbers() {
+        // GIVEN an SSHFP record with reserved and unassigned parameters
+        let rdata = RData::SSHFP(SSHFP::new(
+            Algorithm::Reserved,
+            FingerprintType::Unassigned(3),
+            vec![0x00],
+        ));
+
+        // WHEN fields are extracted
+        let fields = rdata_fields(&rdata);
+
+        // THEN each renders its category name with the wire number.
+        assert_eq!(fields[0], text("Algorithm", "Reserved (0)"));
+        assert_eq!(fields[1], text("Fingerprint Type", "Unassigned (3)"));
+    }
+
+    #[test]
+    fn sshfp_labels_name_the_full_parameter_ranges() {
+        // GIVEN / WHEN / THEN every SSHFP algorithm maps to its RFC 4255
+        // name.
+        assert_eq!(sshfp_algorithm_label(Algorithm::RSA), "RSA (1)");
+        assert_eq!(sshfp_algorithm_label(Algorithm::DSA), "DSA (2)");
+        assert_eq!(sshfp_algorithm_label(Algorithm::ECDSA), "ECDSA (3)");
+        assert_eq!(sshfp_algorithm_label(Algorithm::Ed25519), "Ed25519 (4)");
+        assert_eq!(sshfp_algorithm_label(Algorithm::Ed448), "Ed448 (6)");
+
+        // GIVEN / WHEN / THEN fingerprint types map to their RFC 6594
+        // names.
+        assert_eq!(
+            sshfp_fingerprint_type_label(FingerprintType::Reserved),
+            "Reserved (0)"
+        );
+        assert_eq!(
+            sshfp_fingerprint_type_label(FingerprintType::SHA1),
+            "SHA-1 (1)"
+        );
+        assert_eq!(
+            sshfp_fingerprint_type_label(FingerprintType::SHA256),
+            "SHA-256 (2)"
         );
     }
 
