@@ -10,7 +10,9 @@ use std::process::ExitCode;
 use std::time::Duration;
 
 use clap::Parser;
-use support_bin::{PSL_URL, extract_icann, filter_entries, render};
+use support_bin::{
+    PSL_URL, RDAP_BOOTSTRAP_URL, extract_icann, filter_by_rdap, filter_entries, rdap_tlds, render,
+};
 
 /// How long to wait for the list download before giving up.
 const HTTP_TIMEOUT: Duration = Duration::from_secs(30);
@@ -30,6 +32,10 @@ struct Cli {
     /// Source URL of the Public Suffix List `.dat` payload.
     #[arg(long, default_value = PSL_URL)]
     url: String,
+
+    /// Source URL of the IANA RDAP bootstrap file used to gate TLDs.
+    #[arg(long, default_value = RDAP_BOOTSTRAP_URL)]
+    rdap_url: String,
 }
 
 fn main() -> ExitCode {
@@ -48,22 +54,29 @@ fn run(cli: &Cli) -> Result<(), Box<dyn std::error::Error>> {
     let client = reqwest::blocking::Client::builder()
         .timeout(HTTP_TIMEOUT)
         .build()?;
-    let response = client.get(&cli.url).send()?;
-    let status = response.status();
-    if !status.is_success() {
-        return Err(format!("GET {} failed: HTTP {status}", cli.url).into());
-    }
-    let dat = response.text()?;
 
+    let dat = fetch_text(&client, &cli.url)?;
     let extracted = extract_icann(&dat)?;
-    let entries = filter_entries(&extracted.entries, cli.min_labels);
-    if entries.is_empty() {
+    let by_labels = filter_entries(&extracted.entries, cli.min_labels);
+    if by_labels.is_empty() {
         return Err(format!(
             "no entries with >= {} labels; refusing to write an empty artifact",
             cli.min_labels
         )
         .into());
     }
+
+    let rdap_json = fetch_text(&client, &cli.rdap_url)?;
+    let tlds = rdap_tlds(&rdap_json).map_err(|e| format!("{}: {e}", cli.rdap_url))?;
+    let entries = filter_by_rdap(&by_labels, &tlds);
+    if entries.is_empty() {
+        return Err(
+            "no entries survive the RDAP bootstrap filter; refusing to write an empty artifact"
+                .into(),
+        );
+    }
+    let dropped = by_labels.len() - entries.len();
+
     let text = render(&extracted, cli.min_labels, &entries);
 
     if let Some(parent) = cli.out.parent() {
@@ -72,12 +85,27 @@ fn run(cli: &Cli) -> Result<(), Box<dyn std::error::Error>> {
     std::fs::write(&cli.out, text)?;
 
     println!(
-        "wrote {} entries (>= {} labels) to {}",
+        "wrote {} entries (>= {} labels, RDAP-gated) to {}",
         entries.len(),
         cli.min_labels,
         cli.out.display()
     );
     println!("  source version: {}", extracted.version);
     println!("  source commit:  {}", extracted.commit);
+    println!("  rdap bootstrap: {}", cli.rdap_url);
+    println!("  dropped by RDAP filter: {dropped}");
     Ok(())
+}
+
+/// GET a URL and return its body, mapping a non-success status to an error.
+fn fetch_text(
+    client: &reqwest::blocking::Client,
+    url: &str,
+) -> Result<String, Box<dyn std::error::Error>> {
+    let response = client.get(url).send()?;
+    let status = response.status();
+    if !status.is_success() {
+        return Err(format!("GET {url} failed: HTTP {status}").into());
+    }
+    response.text().map_err(Into::into)
 }

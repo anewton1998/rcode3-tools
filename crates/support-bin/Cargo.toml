@@ -12,6 +12,11 @@ path = "src/main.rs"
 [dependencies]
 chrono = "0.4"
 clap.workspace = true
+# `idna` normalizes Unicode TLDs to their punycode A-label so PSL entries like
+# `рф` can be matched against the ASCII-only IANA RDAP bootstrap set.
+idna = "1"
+# `serde_json::Value` is enough to walk the bootstrap file; no derive models.
+serde_json = "1"
 # reqwest already carries the rustls backend via the workspace entry; the
 # `blocking` feature turns it into a one-shot client so the CLI needs no
 # async runtime.

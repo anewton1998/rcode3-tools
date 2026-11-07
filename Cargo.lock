@@ -2207,7 +2207,9 @@ version = "0.3.0"
 dependencies = [
  "chrono",
  "clap",
+ "idna",
  "reqwest",
+ "serde_json",
  "thiserror",
 ]
 
