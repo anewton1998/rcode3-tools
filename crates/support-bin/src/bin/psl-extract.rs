@@ -10,7 +10,8 @@ use std::process::ExitCode;
 use std::time::Duration;
 
 use clap::Parser;
-use support_bin::{
+use support_bin::cli::{fetch_text, http_client, run_or_exit};
+use support_bin::psl::{
     PSL_URL, RDAP_BOOTSTRAP_URL, extract_icann, filter_by_rdap, filter_entries, rdap_tlds, render,
 };
 
@@ -40,20 +41,12 @@ struct Cli {
 
 fn main() -> ExitCode {
     let cli = Cli::parse();
-    match run(&cli) {
-        Ok(()) => ExitCode::SUCCESS,
-        Err(err) => {
-            eprintln!("psl-extract: {err}");
-            ExitCode::FAILURE
-        }
-    }
+    run_or_exit("psl-extract", || run(&cli))
 }
 
 /// Run the download → extract → filter → render → write pipeline.
 fn run(cli: &Cli) -> Result<(), Box<dyn std::error::Error>> {
-    let client = reqwest::blocking::Client::builder()
-        .timeout(HTTP_TIMEOUT)
-        .build()?;
+    let client = http_client(HTTP_TIMEOUT)?;
 
     let dat = fetch_text(&client, &cli.url)?;
     let extracted = extract_icann(&dat)?;
@@ -95,17 +88,4 @@ fn run(cli: &Cli) -> Result<(), Box<dyn std::error::Error>> {
     println!("  rdap bootstrap: {}", cli.rdap_url);
     println!("  dropped by RDAP filter: {dropped}");
     Ok(())
-}
-
-/// GET a URL and return its body, mapping a non-success status to an error.
-fn fetch_text(
-    client: &reqwest::blocking::Client,
-    url: &str,
-) -> Result<String, Box<dyn std::error::Error>> {
-    let response = client.get(url).send()?;
-    let status = response.status();
-    if !status.is_success() {
-        return Err(format!("GET {url} failed: HTTP {status}").into());
-    }
-    response.text().map_err(Into::into)
 }

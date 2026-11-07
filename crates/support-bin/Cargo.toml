@@ -3,11 +3,9 @@ name = "support-bin"
 version.workspace = true
 edition.workspace = true
 
-# Support binaries for the rcode3-tools workspace. The library half holds the
-# pure, offline-testable logic; the binary half is a thin CLI over it.
-[[bin]]
-name = "psl-extract"
-path = "src/main.rs"
+# Support binaries for the rcode3-tools workspace. The library half (src/lib.rs)
+# holds the pure logic + shared CLI plumbing; each binary is auto-discovered from
+# src/bin/<name>.rs, so adding a new tool needs no Cargo.toml changes.
 
 [dependencies]
 chrono = "0.4"
