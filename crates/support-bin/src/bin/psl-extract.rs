@@ -1,18 +1,26 @@
-//! `psl-extract` — download the Public Suffix List and emit a compact, committed
-//! artifact of ICANN public suffixes with at least `--min-labels` labels.
+//! `psl-extract` — download the Public Suffix List and the IANA RDAP bootstrap,
+//! then emit three committed artifacts:
+//!
+//! 1. the compact, RDAP-gated, `>= --min-labels` suffix list (the original
+//!    `psl_2plus.txt`),
+//! 2. the **full** ICANN public suffix list (all labels, wildcards and
+//!    exceptions; not RDAP-gated) — the authoritative source for eTLD+1, and
+//! 3. the **RDAP-covered TLD set** — the positive signal for whether a TLD has
+//!    RDAP service (a TLD absent here, e.g. `de`, has none).
 //!
 //! The heavy lifting lives in the `support_bin` library; this binary is a thin CLI
-//! that downloads the payload, runs the extract/filter/render pipeline, and writes
-//! the result to disk for `include_str!` by a consuming crate.
+//! that downloads the payloads, runs the extract/filter/render pipeline, and
+//! writes the results to disk for `include_str!` by a consuming crate.
 
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::process::ExitCode;
 use std::time::Duration;
 
 use clap::Parser;
 use support_bin::cli::{fetch_text, http_client, run_or_exit};
 use support_bin::psl::{
-    PSL_URL, RDAP_BOOTSTRAP_URL, extract_icann, filter_by_rdap, filter_entries, rdap_tlds, render,
+    PSL_URL, RDAP_BOOTSTRAP_URL, extract_icann, filter_by_rdap, filter_entries, rdap_publication,
+    rdap_tlds, render, render_icann_psl, render_rdap_tlds,
 };
 
 /// How long to wait for the list download before giving up.
@@ -25,6 +33,15 @@ struct Cli {
     /// Output path for the generated artifact (relative to the current directory).
     #[arg(long, default_value = "crates/support-bin/data/psl_2plus.txt")]
     out: PathBuf,
+
+    /// Output path for the full ICANN public suffix list (all labels, wildcards
+    /// and exceptions; not RDAP-gated).
+    #[arg(long, default_value = "crates/support-bin/data/icann_psl.txt")]
+    psl_out: PathBuf,
+
+    /// Output path for the RDAP-covered TLD set.
+    #[arg(long, default_value = "crates/support-bin/data/rdap_tlds.txt")]
+    rdap_out: PathBuf,
 
     /// Minimum number of dot-separated labels an entry must have to be kept.
     #[arg(long, default_value_t = 2)]
@@ -70,12 +87,21 @@ fn run(cli: &Cli) -> Result<(), Box<dyn std::error::Error>> {
     }
     let dropped = by_labels.len() - entries.len();
 
-    let text = render(&extracted, cli.min_labels, &entries);
+    // 1. The compact, RDAP-gated, >= min-labels artifact (original purpose).
+    let gated_text = render(&extracted, cli.min_labels, &entries);
+    write_artifact(&cli.out, &gated_text)?;
 
-    if let Some(parent) = cli.out.parent() {
-        std::fs::create_dir_all(parent)?;
-    }
-    std::fs::write(&cli.out, text)?;
+    // 2. The full ICANN PSL (all labels, wildcards, exceptions) — the
+    //    authoritative source for eTLD+1, independent of RDAP coverage.
+    let full = filter_entries(&extracted.entries, 1);
+    let psl_text = render_icann_psl(&extracted, &full);
+    write_artifact(&cli.psl_out, &psl_text)?;
+
+    // 3. The RDAP-covered TLD set — the positive signal for "is this TLD in
+    //    RDAP" (a TLD absent here, e.g. `de`, has no RDAP service).
+    let publication = rdap_publication(&rdap_json).map_err(|e| format!("{}: {e}", cli.rdap_url))?;
+    let tlds_text = render_rdap_tlds(&tlds, &publication);
+    write_artifact(&cli.rdap_out, &tlds_text)?;
 
     println!(
         "wrote {} entries (>= {} labels, RDAP-gated) to {}",
@@ -83,9 +109,30 @@ fn run(cli: &Cli) -> Result<(), Box<dyn std::error::Error>> {
         cli.min_labels,
         cli.out.display()
     );
+    println!(
+        "wrote {} full ICANN entries to {}",
+        full.len(),
+        cli.psl_out.display()
+    );
+    println!(
+        "wrote {} RDAP-covered TLDs to {}",
+        tlds.len(),
+        cli.rdap_out.display()
+    );
     println!("  source version: {}", extracted.version);
     println!("  source commit:  {}", extracted.commit);
-    println!("  rdap bootstrap: {}", cli.rdap_url);
+    println!(
+        "  rdap bootstrap: {} (published {publication})",
+        cli.rdap_url
+    );
     println!("  dropped by RDAP filter: {dropped}");
     Ok(())
+}
+
+/// Create the parent directory if needed and write `text` to `path`.
+fn write_artifact(path: &Path, text: &str) -> Result<(), std::io::Error> {
+    if let Some(parent) = path.parent() {
+        std::fs::create_dir_all(parent)?;
+    }
+    std::fs::write(path, text)
 }
