@@ -31,16 +31,16 @@ const HTTP_TIMEOUT: Duration = Duration::from_secs(30);
 #[command(name = "psl-extract", version, about)]
 struct Cli {
     /// Output path for the generated artifact (relative to the current directory).
-    #[arg(long, default_value = "crates/support-bin/data/psl_2plus.txt")]
+    #[arg(long, default_value = "work/psl_2plus.txt")]
     out: PathBuf,
 
     /// Output path for the full ICANN public suffix list (all labels, wildcards
     /// and exceptions; not RDAP-gated).
-    #[arg(long, default_value = "crates/support-bin/data/icann_psl.txt")]
+    #[arg(long, default_value = "work/icann_psl.txt")]
     psl_out: PathBuf,
 
     /// Output path for the RDAP-covered TLD set.
-    #[arg(long, default_value = "crates/support-bin/data/rdap_tlds.txt")]
+    #[arg(long, default_value = "work/rdap_tlds.txt")]
     rdap_out: PathBuf,
 
     /// Minimum number of dot-separated labels an entry must have to be kept.
