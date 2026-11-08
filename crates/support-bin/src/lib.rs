@@ -9,8 +9,11 @@
 //! Modules:
 //! - [`psl`] — the Public Suffix List extract / RDAP-gate / render pipeline
 //!   behind the `psl-extract` binary.
-//! - [`cli`] — shared plumbing (HTTP client, one-shot fetch, exit-code wrapper)
-//!   reused by every binary so they stay thin.
+//! - [`nro`] — the URL, timestamped-filename builder and payload guard behind
+//!   the `nro-extended-stats` binary.
+//! - [`cli`] — shared plumbing (HTTP client, one-shot fetch, streaming
+//!   download, exit-code wrapper) reused by every binary so they stay thin.
 
 pub mod cli;
+pub mod nro;
 pub mod psl;
