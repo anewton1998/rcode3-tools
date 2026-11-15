@@ -9,11 +9,19 @@
 //! Modules:
 //! - [`psl`] — the Public Suffix List extract / RDAP-gate / render pipeline
 //!   behind the `psl-extract` binary.
-//! - [`nro`] — the URL, timestamped-filename builder and payload guard behind
-//!   the `nro-extended-stats` binary.
+//! - [`nro`] — the URL, timestamped-filename builder, payload guard and
+//!   record classifiers shared by the `nro-extended-stats` and `nro-enqueue`
+//!   binaries.
+//! - [`nro_queue`] — the yaque-backed enqueue pipeline behind the
+//!   `nro-enqueue` binary.
+//! - [`nro_dequeue`] — the RDAP-querying dequeue pipeline behind the
+//!   `nro-dequeue` binary (IANA bootstrap, per-host rate limiting, RFC 9877
+//!   geofeed download).
 //! - [`cli`] — shared plumbing (HTTP client, one-shot fetch, streaming
 //!   download, exit-code wrapper) reused by every binary so they stay thin.
 
 pub mod cli;
 pub mod nro;
+pub mod nro_dequeue;
+pub mod nro_queue;
 pub mod psl;

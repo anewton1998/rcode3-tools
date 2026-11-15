@@ -1,0 +1,33 @@
+[package]
+name = "db"
+version.workspace = true
+edition.workspace = true
+
+# Generic Postgres access layer for the rcode3-tools workspace. Wraps a sqlx
+# `PgPool` behind a small `Db` handle (cloneable for axum `State` sharing), owns
+# the migrations, and exposes a runtime-query repository. The `widgets` module is
+# an example schema that consumers copy for their own tables.
+
+[dependencies]
+# `chrono` is re-exported through the `Widget` timestamps; sqlx's `chrono` feature
+# maps `timestamptz` <-> `DateTime<Utc>`.
+chrono = "0.4"
+# Config is read from env vars (DATABASE_URL, pool sizing) via dotenvy, matching
+# the workspace convention.
+dotenvy = { workspace = true }
+# Runtime queries only (no compile-time DATABASE_URL needed). rustls TLS keeps the
+# workspace off native-tls/openssl for this crate.
+sqlx = { workspace = true }
+# Structured logging for connect/migrate lifecycle events.
+tracing = { workspace = true }
+# Domain error enum (mirrors the workspace's thiserror-based error style).
+thiserror = { workspace = true }
+# `uuid::Uuid` is the Rust-side `id` type; sqlx's `uuid` feature binds it.
+uuid = { version = "1", features = ["v4"] }
+
+[dev-dependencies]
+# Integration tests spin a throwaway Postgres via testcontainers and drive the
+# async runner under tokio.
+testcontainers = { workspace = true }
+testcontainers-modules = { workspace = true }
+tokio = { workspace = true }

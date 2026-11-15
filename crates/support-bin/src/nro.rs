@@ -1,4 +1,5 @@
-//! Pure, offline-testable logic behind the `nro-extended-stats` support binary.
+//! Pure, offline-testable logic shared by the NRO support binaries
+//! (`nro-extended-stats` and `nro-enqueue`).
 //!
 //! The Number Resource Organization (NRO) publishes a combined **extended
 //! statistics** file — the five RIR registries' delegated-resource records
@@ -7,10 +8,12 @@
 //! `e-stats` marker, and opens with an NRO serial record of the form
 //! `2|nro|<date>|<serial>|<start-asn>|<date>|+0000`.
 //!
-//! This module holds only the pure pieces the binary needs: the canonical
-//! source URL, the timestamped-filename builder, and the payload sanity guard.
-//! All network and filesystem work lives in [`crate::cli`]; keeping the logic
-//! here means it is testable without touching the network or disk.
+//! This module holds only the pure pieces the binaries need: the canonical
+//! source URL, the timestamped-filename builder, the payload sanity guard,
+//! the per-line record classifiers, and the latest-file picker. All network,
+//! filesystem and queue work lives in [`crate::cli`] and [`crate::nro_queue`];
+//! keeping the logic here means it is testable without touching the network,
+//! disk or a queue.
 //!
 //! Design notes:
 //! - The download timestamp is rendered in a **compact, filesystem-safe**
@@ -21,6 +24,10 @@
 //! - The sanity guard checks only the *first* line (the NRO serial record)
 //!   rather than parsing the whole ~57 MB stream, mirroring the PSL module's
 //!   "refuse a malformed payload" philosophy at O(1) cost.
+//! - The record classifiers key off the pipe-delimited fields: the serial
+//!   record starts with `2|nro|`, aggregate summary records end with the
+//!   `summary` marker, and IANA reserved records lead with the `iana`
+//!   registry.
 
 use std::path::{Path, PathBuf};
 
@@ -50,6 +57,16 @@ pub enum NroError {
     /// The first line was present but is not the expected NRO serial record.
     #[error("payload does not look like NRO extended stats (first line: {0:?})")]
     UnexpectedFormat(String),
+    /// No `<base>-<stamp>` stats file was found in the work directory, or an
+    /// explicit `--stats-file` path does not exist.
+    #[error("NRO stats file not found: {}", .0.display())]
+    NoStatsFile(PathBuf),
+    /// Reading the stats stream failed.
+    #[error("read error: {0}")]
+    Read(#[from] std::io::Error),
+    /// A yaque queue operation failed.
+    #[error("yaque queue error: {0}")]
+    Queue(String),
 }
 
 /// Build the timestamped file name: `<base>-<stamp>`.
@@ -89,6 +106,40 @@ pub fn validate_first_line(first_line: &str) -> Result<(), NroError> {
         return Err(NroError::UnexpectedFormat(sample));
     }
     Ok(())
+}
+
+/// Whether `line` is the NRO serial record that opens the file.
+pub fn is_serial_line(line: &str) -> bool {
+    line.starts_with(NRO_SERIAL_PREFIX)
+}
+
+/// Whether `line` is an NRO aggregate summary record (last field `summary`).
+pub fn is_summary_line(line: &str) -> bool {
+    line.rsplit('|').next() == Some("summary")
+}
+
+/// Whether `line` is an IANA reserved-resource record (first field `iana`).
+pub fn is_iana_line(line: &str) -> bool {
+    line.split('|').next() == Some("iana")
+}
+
+/// Whether a line must be excluded from the queue: the serial record, the
+/// aggregate summary records, or the IANA reserved records. Everything else
+/// is a per-RIR delegation entry worth enqueuing.
+pub fn should_skip_line(line: &str) -> bool {
+    is_serial_line(line) || is_summary_line(line) || is_iana_line(line)
+}
+
+/// Pick the latest stats file name among `names` for the given `base`.
+///
+/// A candidate starts with `<base>-` and does not end in `.part` (the
+/// download binary's staging files). Because the timestamp stamp is fixed
+/// width and zero-padded, the lexicographic maximum is the most recent.
+pub fn latest_stats_file<'a>(names: impl Iterator<Item = &'a str>, base: &str) -> Option<&'a str> {
+    let prefix = format!("{base}-");
+    names
+        .filter(|name| name.starts_with(&prefix) && !name.ends_with(".part"))
+        .max()
 }
 
 #[cfg(test)]
@@ -164,6 +215,71 @@ mod tests {
             validate_first_line(""),
             Err(NroError::EmptyPayload)
         ));
+    }
+
+    #[test]
+    fn classifies_each_record_type() {
+        // GIVEN one line of each kind from the real file
+        let serial = "2|nro|20261108|775178|19821213|20261108|+0000";
+        let summary = "nro|*|asn|*|117676|summary";
+        let iana = "iana|ZZ|asn|0|1|20140311|reserved|ietf|iana";
+        let rir = "arin|US|asn|1|1|20010920|assigned|e5e3b9c13678dfc483fb1f819d70883c|e-stats";
+        // WHEN each classifier runs
+        // THEN each line is recognised by exactly its own category
+        assert!(is_serial_line(serial));
+        assert!(is_summary_line(summary));
+        assert!(is_iana_line(iana));
+        assert!(!is_serial_line(rir) && !is_summary_line(rir) && !is_iana_line(rir));
+        // A pipe-less line's only field is the whole line, so a bare
+        // `summary` / `iana` classifies by that field.
+        assert!(is_summary_line("summary"));
+        assert!(is_iana_line("iana"));
+    }
+
+    #[test]
+    fn should_skip_covers_serial_summary_and_iana_only() {
+        // GIVEN the four record kinds
+        // WHEN deciding whether to skip
+        // THEN only the RIR delegation entry is kept
+        assert!(should_skip_line(
+            "2|nro|20261108|775178|19821213|20261108|+0000"
+        ));
+        assert!(should_skip_line("nro|*|ipv6|*|386083|summary"));
+        assert!(should_skip_line(
+            "iana|ZZ|asn|112|1|20140311|reserved|ietf|iana"
+        ));
+        assert!(!should_skip_line(
+            "ripencc|EU|asn|7|1|19930901|assigned|8c44e083-7a7a-4853-a906-c7ca5b1167d9|e-stats"
+        ));
+    }
+
+    #[test]
+    fn latest_stats_file_picks_max_and_ignores_staging() {
+        // GIVEN a mix of stamped files, a staging `.part`, and unrelated names
+        let names = [
+            "nro-delegated-stats-20261108T120000Z",
+            "nro-delegated-stats-20261108T145855Z",
+            "nro-delegated-stats-20261107T090000Z",
+            "nro-delegated-stats.4242.part",
+            "icann_psl.txt",
+        ];
+        // WHEN the latest is picked for the NRO base name
+        let latest = latest_stats_file(names.iter().copied(), NRO_BASE_NAME);
+        // THEN the newest stamped file wins and the staging/unrelated names are
+        // ignored
+        assert_eq!(latest, Some("nro-delegated-stats-20261108T145855Z"));
+    }
+
+    #[test]
+    fn latest_stats_file_returns_none_when_nothing_matches() {
+        // GIVEN names with no matching prefix
+        let names = ["icann_psl.txt", "rdap_tlds.txt"];
+        // WHEN the latest is picked
+        // THEN there is none
+        assert_eq!(
+            latest_stats_file(names.iter().copied(), NRO_BASE_NAME),
+            None
+        );
     }
 
     /// RAII guard that removes a temp directory on drop (including on panic),

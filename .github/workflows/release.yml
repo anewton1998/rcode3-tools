@@ -20,6 +20,11 @@ jobs:
     runs-on: ubuntu-latest
     container:
       image: rust:1-slim-bookworm
+      # The `db` crate's integration tests use testcontainers, which talks to the
+      # runner's Docker daemon through the mounted socket (testcontainers-rs /
+      # bollard auto-detect /var/run/docker.sock). The ryuk reaper container is
+      # started the same way.
+      options: --mount type=bind,source=/var/run/docker.sock,target=/var/run/docker.sock
     steps:
       - uses: actions/checkout@v4
 

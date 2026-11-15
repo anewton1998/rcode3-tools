@@ -20,3 +20,23 @@ serde_json = "1"
 # async runtime.
 reqwest = { workspace = true, features = ["blocking"] }
 thiserror = "2"
+# `yaque` is a disk-backed SPSC queue. Its `Sender` is lock-free and usable
+# outside an async context, so `try_send_batch` lets the `nro-enqueue` binary
+# enqueue without pulling in an async runtime.
+yaque = "0.6"
+# The `nro-dequeue` binary drives the async `icann-rdap-client`, so it needs a
+# tokio runtime (the workspace entry is `features = ["full"]`).
+tokio = { workspace = true }
+# `icann-rdap-client` performs the RDAP queries (with IANA bootstrapping);
+# `icann-rdap-common` supplies the typed `RdapResponse` / `Link` model used to
+# read the RFC 9877 geofeed link out of the response.
+icann-rdap-client = { workspace = true }
+icann-rdap-common = { workspace = true }
+# Structured logging for the dequeue binary, matching the workspace convention.
+tracing = { workspace = true }
+tracing-subscriber = { workspace = true }
+
+[dev-dependencies]
+# The enqueue integration test drains the yaque `Receiver`, whose `recv` is
+# async; `futures::executor::block_on` drives it without a full runtime.
+futures = "0.3"
