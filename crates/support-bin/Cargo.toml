@@ -10,6 +10,9 @@ edition.workspace = true
 [dependencies]
 chrono = "0.4"
 clap.workspace = true
+# The `db` crate provides the durable, Postgres-backed job queue (replacing the
+# old yaque disk queue) and the RDAP result store used by the dequeue pipeline.
+db = { path = "../db" }
 # `idna` normalizes Unicode TLDs to their punycode A-label so PSL entries like
 # `рф` can be matched against the ASCII-only IANA RDAP bootstrap set.
 idna = "1"
@@ -20,12 +23,8 @@ serde_json = "1"
 # async runtime.
 reqwest = { workspace = true, features = ["blocking"] }
 thiserror = "2"
-# `yaque` is a disk-backed SPSC queue. Its `Sender` is lock-free and usable
-# outside an async context, so `try_send_batch` lets the `nro-enqueue` binary
-# enqueue without pulling in an async runtime.
-yaque = "0.6"
-# The `nro-dequeue` binary drives the async `icann-rdap-client`, so it needs a
-# tokio runtime (the workspace entry is `features = ["full"]`).
+# The enqueue and dequeue binaries now drive the async `db` queue and the async
+# `icann-rdap-client`, so both run on a tokio runtime (workspace `full`).
 tokio = { workspace = true }
 # `icann-rdap-client` performs the RDAP queries (with IANA bootstrapping);
 # `icann-rdap-common` supplies the typed `RdapResponse` / `Link` model used to
@@ -37,6 +36,5 @@ tracing = { workspace = true }
 tracing-subscriber = { workspace = true }
 
 [dev-dependencies]
-# The enqueue integration test drains the yaque `Receiver`, whose `recv` is
-# async; `futures::executor::block_on` drives it without a full runtime.
-futures = "0.3"
+# Integration tests reuse the `db` crate's testcontainers-backed `fresh_db()`.
+db = { path = "../db", features = ["testutil"] }

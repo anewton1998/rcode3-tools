@@ -4,14 +4,16 @@
 //! requirement) and rustls TLS. The [`Db`] handle wraps a cloneable `PgPool`
 //! (cheap to share via axum `State`) and always applies migrations on connect.
 //!
-//! The [`widgets`] module is an example schema — copy its insert / query / list /
-//! count pattern for your own tables.
-//!
 //! Modules:
 //! - [`error`] — the [`DbError`](error::DbError) enum and [`Result`](error::Result) alias.
 //! - [`config`] — [`DbConfig`](config::DbConfig) and env-var loading.
 //! - [`pool`] — the [`Db`](pool::Db) handle (connect + migrate).
+//! - [`queue`] — a generic, topic-partitioned durable job queue (at-least-once,
+//!   `FOR UPDATE SKIP LOCKED`, leases + retry).
+//! - [`results`] — the RDAP result store (latest-per-address `inet` upsert).
 //! - [`widgets`] — example model + repository functions.
+//! - [`testutil`] — testcontainers-backed `fresh_db()` (only with the
+//!   `testutil` feature).
 //!
 //! # Example
 //!
@@ -30,7 +32,12 @@
 pub mod config;
 pub mod error;
 pub mod pool;
+pub mod queue;
+pub mod results;
 pub mod widgets;
+
+#[cfg(feature = "testutil")]
+pub mod testutil;
 
 pub use config::DbConfig;
 pub use error::{DbError, Result};

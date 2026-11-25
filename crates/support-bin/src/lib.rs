@@ -12,11 +12,11 @@
 //! - [`nro`] — the URL, timestamped-filename builder, payload guard and
 //!   record classifiers shared by the `nro-extended-stats` and `nro-enqueue`
 //!   binaries.
-//! - [`nro_queue`] — the yaque-backed enqueue pipeline behind the
-//!   `nro-enqueue` binary.
+//! - [`nro_queue`] — the Postgres-backed enqueue pipeline behind the
+//!   `nro-enqueue` binary (writes to the `db` crate's `queue_jobs` table).
 //! - [`nro_dequeue`] — the RDAP-querying dequeue pipeline behind the
-//!   `nro-dequeue` binary (IANA bootstrap, per-host rate limiting, RFC 9877
-//!   geofeed download).
+//!   `nro-dequeue` binary (claims from `queue_jobs`, stores results in
+//!   `rdap_results`).
 //! - [`cli`] — shared plumbing (HTTP client, one-shot fetch, streaming
 //!   download, exit-code wrapper) reused by every binary so they stay thin.
 

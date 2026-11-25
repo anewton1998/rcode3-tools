@@ -1,54 +1,45 @@
-//! `nro-dequeue` — drain the `nro-enqueue` yaque queue and query RDAP.
+//! `nro-dequeue` — drain the `nro-delegations` Postgres queue and query RDAP.
 //!
 //! For every IP delegation record in the queue this binary issues an RDAP
-//! query through `icann-rdap-client` (resolved via the IANA bootstrap),
-//! writes the JSON response under the results directory, and downloads any
-//! RFC 9877 geofeed file the response advertises. AS-number (`asn`/`autnum`)
-//! records are discarded. Queries are rate limited to one per host per
-//! `--min-interval-secs`, processed round-robin across registries so the
-//! registry-grouped input does not stall.
+//! query through `icann-rdap-client` (resolved via the IANA bootstrap), UPSERTs
+//! the JSON response into the `rdap_results` table, and downloads any RFC 9877
+//! geofeed file the response advertises. AS-number (`asn`/`autnum`) records are
+//! discarded. Work is claimed one-registry-per-round with a lease (so the run is
+//! crash-safe and concurrent-safe), and queries are rate limited to one per host
+//! per `--min-interval-secs`.
 //!
-//! The classification, rate limiting, filename layout and the async drain
-//! loop all live in `support_bin::nro_dequeue`; this binary is a thin CLI
-//! that wires up the clients, the queue and the tracing subscriber.
+//! The classification, rate limiting and the async claim loop all live in
+//! `support_bin::nro_dequeue`; this binary is a thin CLI that wires up the
+//! clients, the database and the tracing subscriber.
 
 use std::net::{Ipv4Addr, Ipv6Addr};
-use std::path::PathBuf;
 use std::process::ExitCode;
 use std::time::Duration;
 
 use clap::Parser;
+use db::Db;
 use icann_rdap_client::http::Client as RdapClient;
 use icann_rdap_client::iana::qtype_to_bootstrap_url;
 use icann_rdap_client::prelude::{ClientConfig, MemoryBootstrapStore, QueryType, create_client};
 use support_bin::nro_dequeue::{DequeueConfig, dequeue_all};
-use yaque::Receiver;
 
 /// Default minimum interval (seconds) between queries to the same server.
 const DEFAULT_MIN_INTERVAL_SECS: u64 = 60;
 /// Default per-request timeout (seconds).
 const DEFAULT_TIMEOUT_SECS: u64 = 30;
-/// How long to wait for the next queued item before treating the queue as
-/// drained (yaque has no "producer finished" signal).
-const IDLE_DRAIN_TIMEOUT: Duration = Duration::from_secs(2);
+/// Default lease (seconds) a claimed job is held before it becomes reclaimable.
+const DEFAULT_LEASE_SECS: u64 = 300;
+/// Default attempts allowed before a failing job goes terminal.
+const DEFAULT_MAX_ATTEMPTS: i32 = 3;
+/// Default backoff (seconds) before a failed job is re-claimable.
+const DEFAULT_RETRY_BACKOFF_SECS: u64 = 60;
+/// Default number of jobs claimed per round (one per registry, up to this cap).
+const DEFAULT_CLAIM_BATCH: i64 = 50;
 
-/// Dequeue the NRO yaque queue and query RDAP for each IP record.
+/// Dequeue the NRO Postgres queue and query RDAP for each IP record.
 #[derive(Parser)]
 #[command(name = "nro-dequeue", version, about)]
 struct Cli {
-    /// Work directory — the default parent of the queue and results dirs.
-    #[arg(long, default_value = "work")]
-    work_dir: PathBuf,
-
-    /// yaque queue directory to drain (default: `<work-dir>/nro-queue`).
-    #[arg(long)]
-    queue_dir: Option<PathBuf>,
-
-    /// Directory the RDAP / geofeed result files are written under
-    /// (default: `<work-dir>/rdap-results`).
-    #[arg(long)]
-    results_dir: Option<PathBuf>,
-
     /// Minimum interval (seconds) between queries to the same server.
     #[arg(
         long,
@@ -65,16 +56,49 @@ struct Cli {
     )]
     timeout_secs: u64,
 
+    /// Lease (seconds) a claimed job is held before it becomes reclaimable.
+    #[arg(
+        long,
+        default_value_t = DEFAULT_LEASE_SECS,
+        value_parser = clap::value_parser!(u64).range(1..=86_400)
+    )]
+    lease_secs: u64,
+
+    /// Attempts allowed before a failing job is marked terminal `failed`.
+    #[arg(
+        long,
+        default_value_t = DEFAULT_MAX_ATTEMPTS,
+        value_parser = clap::value_parser!(i32).range(1..=100)
+    )]
+    max_attempts: i32,
+
+    /// Backoff (seconds) before a failed job is re-claimable.
+    #[arg(
+        long,
+        default_value_t = DEFAULT_RETRY_BACKOFF_SECS,
+        value_parser = clap::value_parser!(u64).range(1..=86_400)
+    )]
+    retry_backoff_secs: u64,
+
+    /// Jobs claimed per round (one per registry, up to this cap).
+    #[arg(
+        long,
+        default_value_t = DEFAULT_CLAIM_BATCH,
+        value_parser = clap::value_parser!(i64).range(1..=10_000)
+    )]
+    claim_batch: i64,
+
     /// String appended to the RDAP client user-agent.
     #[arg(long, default_value = "support-bin-nro-dequeue")]
     user_agent_suffix: String,
 
-    /// Resolve and schedule only — make no network calls and write no files.
+    /// Resolve and schedule only — make no network calls and store no results;
+    /// claimed jobs are released back to the queue.
     #[arg(long)]
     dry_run: bool,
 
     /// Stop after this many IP records (caps a run for testing; the rest of
-    /// the queue is left unread). Defaults to draining the whole queue.
+    /// the queue is left pending). Defaults to draining the whole queue.
     #[arg(long, value_parser = clap::value_parser!(usize))]
     max_items: Option<usize>,
 }
@@ -99,19 +123,8 @@ async fn main() -> ExitCode {
     }
 }
 
-/// Wire up the RDAP + geofeed clients and the queue, then run the pipeline.
+/// Wire up the RDAP + geofeed clients and the database, then run the pipeline.
 async fn run(cli: &Cli) -> Result<(), Box<dyn std::error::Error>> {
-    // `--queue-dir` / `--results-dir` default to `<work-dir>/…` so a single
-    // `--work-dir` relocates everything; an explicit flag overrides.
-    let queue_dir = cli
-        .queue_dir
-        .clone()
-        .unwrap_or_else(|| cli.work_dir.join("nro-queue"));
-    let results_dir = cli
-        .results_dir
-        .clone()
-        .unwrap_or_else(|| cli.work_dir.join("rdap-results"));
-
     let config = ClientConfig::builder()
         .timeout_secs(cli.timeout_secs)
         .user_agent_suffix(cli.user_agent_suffix.clone())
@@ -122,29 +135,24 @@ async fn run(cli: &Cli) -> Result<(), Box<dyn std::error::Error>> {
         .timeout(Duration::from_secs(cli.timeout_secs))
         .build()?;
 
-    // Open the queue first so a missing queue fails before any network work.
-    let mut receiver = Receiver::open(&queue_dir)?;
+    // Connect (and migrate) before any network work.
+    let db = Db::connect_from_env().await?;
 
     if !cli.dry_run {
         warm_up_bootstrap(&client, &store).await?;
     }
 
     let dequeue_config = DequeueConfig {
-        results_dir: &results_dir,
         min_interval: Duration::from_secs(cli.min_interval_secs),
-        idle_timeout: IDLE_DRAIN_TIMEOUT,
+        lease: Duration::from_secs(cli.lease_secs),
+        max_attempts: cli.max_attempts,
+        retry_backoff: Duration::from_secs(cli.retry_backoff_secs),
+        claim_batch: cli.claim_batch,
         dry_run: cli.dry_run,
         max_items: cli.max_items,
     };
 
-    let stats = dequeue_all(
-        &mut receiver,
-        &client,
-        &store,
-        &geofeed_client,
-        &dequeue_config,
-    )
-    .await?;
+    let stats = dequeue_all(&db, &client, &store, &geofeed_client, &dequeue_config).await?;
 
     tracing::info!(
         processed = stats.processed,
@@ -154,7 +162,6 @@ async fn run(cli: &Cli) -> Result<(), Box<dyn std::error::Error>> {
         discarded_asn = stats.discarded_asn,
         skipped = stats.skipped,
         failed = stats.failed,
-        results_dir = %results_dir.display(),
         "dequeue complete"
     );
     Ok(())

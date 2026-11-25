@@ -64,9 +64,9 @@ pub enum NroError {
     /// Reading the stats stream failed.
     #[error("read error: {0}")]
     Read(#[from] std::io::Error),
-    /// A yaque queue operation failed.
-    #[error("yaque queue error: {0}")]
-    Queue(String),
+    /// A database queue operation failed.
+    #[error("queue error: {0}")]
+    Queue(#[from] db::DbError),
 }
 
 /// Build the timestamped file name: `<base>-<stamp>`.

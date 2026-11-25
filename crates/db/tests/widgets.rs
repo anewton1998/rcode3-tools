@@ -1,58 +1,10 @@
-//! Integration tests against a real Postgres via testcontainers.
-//!
-//! These always run (per project decision) and require a Docker daemon. Each test
-//! gets its own throwaway container; the `ryuk` reaper (or the held
-//! `ContainerAsync`) cleans it up at test teardown.
+//! Integration tests against a real Postgres via the shared `db::testutil`
+//! container helper. Run with `cargo test -p db --features testutil`.
 
+use db::testutil::fresh_db;
 use db::widgets::{self, Widget};
 use db::{Db, DbConfig};
-use testcontainers_modules::postgres::Postgres;
-use testcontainers_modules::testcontainers::ContainerAsync;
-use testcontainers_modules::testcontainers::ImageExt;
-use testcontainers_modules::testcontainers::runners::AsyncRunner;
 use uuid::Uuid;
-
-/// Postgres version to test against. The crate's example schema uses the core
-/// `gen_random_uuid()` (Postgres 13+), so pin a modern image rather than the
-/// module's default (an older release that lacks it).
-const POSTGRES_TAG: &str = "16-alpine";
-
-/// A running Postgres container plus a connected, migrated `Db` and the URL used
-/// to reach it (so a test can open a second connection without re-deriving it).
-struct TestDb {
-    /// Held only to keep the container alive for the test's lifetime; dropped (and
-    /// reaped) when the `TestDb` goes out of scope.
-    _node: ContainerAsync<Postgres>,
-    db: Db,
-    url: String,
-}
-
-/// Spin up a Postgres container and return a connected, migrated handle. The
-/// container is held alive by the returned [`TestDb`] for the test's duration.
-async fn fresh_db() -> TestDb {
-    let node = Postgres::default()
-        .with_tag(POSTGRES_TAG)
-        .start()
-        .await
-        .expect("start postgres container");
-
-    let url = format!(
-        "postgres://postgres:postgres@{}:{}/postgres",
-        node.get_host().await.expect("host"),
-        node.get_host_port_ipv4(5432).await.expect("port")
-    );
-
-    let config = DbConfig {
-        url: url.clone(),
-        ..DbConfig::default()
-    };
-    let db = Db::connect(&config).await.expect("connect + migrate");
-    TestDb {
-        _node: node,
-        db,
-        url,
-    }
-}
 
 #[tokio::test]
 async fn insert_then_get_returns_widget() {
