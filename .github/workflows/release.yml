@@ -52,8 +52,75 @@ jobs:
         # db and support-bin integration tests need (Docker socket is mounted above).
         run: cargo test --workspace --features db/testutil
 
-  release:
+  # Each architecture is built natively (no QEMU) and pushed under a temporary
+  # arch-suffixed tag; merge-manifest then combines them into one multi-arch
+  # manifest list. Native arm64 compilation avoids the ~11x QEMU slowdown.
+  build-amd64:
     needs: test
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: docker/setup-buildx-action@v3
+
+      - uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - id: meta
+        uses: docker/metadata-action@v5
+        with:
+          images: ghcr.io/${{ github.repository }}
+          tags: |
+            type=ref,event=tag
+          flavor: |
+            suffix=-amd64
+
+      - uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: ./Dockerfile
+          platforms: linux/amd64
+          push: true
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+
+  build-arm64:
+    needs: test
+    runs-on: ubuntu-24.04-arm
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: docker/setup-buildx-action@v3
+
+      - uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - id: meta
+        uses: docker/metadata-action@v5
+        with:
+          images: ghcr.io/${{ github.repository }}
+          tags: |
+            type=ref,event=tag
+          flavor: |
+            suffix=-arm64
+
+      - uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: ./Dockerfile
+          platforms: linux/arm64
+          push: true
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+
+  merge-manifest:
+    needs: [build-amd64, build-arm64]
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -71,7 +138,6 @@ jobs:
             echo "is_latest=false" >> "$GITHUB_OUTPUT"
           fi
 
-      - uses: docker/setup-qemu-action@v3
       - uses: docker/setup-buildx-action@v3
 
       - uses: docker/login-action@v3
@@ -90,11 +156,19 @@ jobs:
             type=ref,event=tag
             type=raw,value=latest,enable=${{ steps.newest.outputs.is_latest }}
 
-      - uses: docker/build-push-action@v6
-        with:
-          context: .
-          file: ./Dockerfile
-          platforms: linux/amd64,linux/arm64
-          push: true
-          tags: ${{ steps.meta.outputs.tags }}
-          labels: ${{ steps.meta.outputs.labels }}
+      - name: Merge arch manifests into multi-arch manifest list
+        env:
+          TAGS: ${{ steps.meta.outputs.tags }}
+          ANNOTATIONS: ${{ steps.meta.outputs.annotations }}
+        run: |
+          args=()
+          while IFS= read -r tag; do
+            [ -n "${tag}" ] && args+=(--tag "${tag}")
+          done <<< "${TAGS}"
+          annotations=()
+          while IFS= read -r a; do
+            [ -n "${a}" ] && annotations+=(--annotation "${a}")
+          done <<< "${ANNOTATIONS}"
+          docker buildx imagetools create "${args[@]}" "${annotations[@]}" \
+            "ghcr.io/${GITHUB_REPOSITORY}:${GITHUB_REF_NAME}-amd64" \
+            "ghcr.io/${GITHUB_REPOSITORY}:${GITHUB_REF_NAME}-arm64"
