@@ -169,7 +169,10 @@ jobs:
           done <<< "${TAGS}"
           annotations=()
           while IFS= read -r a; do
-            [ -n "${a}" ] && annotations+=(--annotation "${a}")
+            # imagetools create cannot apply "manifest:" annotations (it does not
+            # modify the image manifests); rewrite them to "index:" so they land
+            # on the multi-arch manifest list itself.
+            [ -n "${a}" ] && annotations+=(--annotation "${a/#manifest:/index:}")
           done <<< "${ANNOTATIONS}"
           docker buildx imagetools create "${args[@]}" "${annotations[@]}" \
             "ghcr.io/${GITHUB_REPOSITORY}:${GITHUB_REF_NAME}-amd64" \
