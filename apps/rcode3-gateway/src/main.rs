@@ -15,8 +15,11 @@ async fn main() {
         Err(_) => 8080,
     };
 
+    // Awaited before binding so the rdap-explorer IANA warm-up completes
+    // before the gateway starts answering requests.
+    let rdap = rdap_explorer::router("/rdap-explorer").await;
     let app = rcode3_tools::router("/")
-        .merge(rdap_explorer::router("/rdap-explorer"))
+        .merge(rdap)
         .merge(dns_explorer::router("/dns-explorer"));
 
     let listener = tokio::net::TcpListener::bind((host.as_str(), port))

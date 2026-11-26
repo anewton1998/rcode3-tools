@@ -36,6 +36,18 @@ const DEFAULT_REFRESH_SECS: u64 = 86_400;
 /// the refresher hammer IANA (which publishes at most daily).
 const MIN_REFRESH_SECS: u64 = 60;
 
+/// Shorter delay used to retry after a failed fetch (startup or refresh), so
+/// a transient IANA outage recovers well before the normal daily cadence.
+const RETRY_SECS: u64 = 60;
+
+/// Default budget for the startup (warm-up) fetch before the server starts
+/// serving. Env-overridable via `IANA_STARTUP_TIMEOUT_SECS`.
+const DEFAULT_STARTUP_TIMEOUT_SECS: u64 = 10;
+
+/// Floor for the startup timeout, so a `0`/tiny value can't make the gate
+/// useless (it would never let the fetch land before serving).
+const MIN_STARTUP_TIMEOUT_SECS: u64 = 1;
+
 /// A single registered RDAP service provider.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct IanaServer {
@@ -159,31 +171,93 @@ fn compute_refresh_interval(raw: Option<&str>) -> Duration {
     Duration::from_secs(secs.max(MIN_REFRESH_SECS))
 }
 
-/// Spawns a background task that keeps the cache fresh.
+/// Resolves the startup (warm-up) timeout from the raw
+/// `IANA_STARTUP_TIMEOUT_SECS` value, falling back to
+/// [`DEFAULT_STARTUP_TIMEOUT_SECS`] when unset/unparseable and clamping to
+/// at least [`MIN_STARTUP_TIMEOUT_SECS`].
+fn compute_startup_timeout(raw: Option<&str>) -> Duration {
+    let secs = raw
+        .and_then(|v| v.parse::<u64>().ok())
+        .unwrap_or(DEFAULT_STARTUP_TIMEOUT_SECS);
+    Duration::from_secs(secs.max(MIN_STARTUP_TIMEOUT_SECS))
+}
+
+/// The delay to wait before the *next* refresh: the normal `interval` after
+/// a success, or the shorter `retry` after a failure (so an outage recovers
+/// sooner than the daily cadence).
+fn next_delay(ok: bool, interval: Duration, retry: Duration) -> Duration {
+    if ok { interval } else { retry }
+}
+
+/// Best-effort initial population of the cache, performed *before* the
+/// server starts answering requests.
 ///
-/// Fetches immediately, then on the resolved interval (see
-/// [`compute_refresh_interval`]). A successful fetch replaces the cached
-/// list; a failed fetch keeps the last-good value and logs a warning, so a
-/// transient IANA outage never empties the dropdown.
+/// Waits up to the startup budget for one fetch. On success the cache is
+/// populated and `true` is returned; on error or timeout the cache is left
+/// as-is (empty) and `false` is returned, so the caller can start serving
+/// with the bootstrap-only dropdown while the background refresher retries.
+pub async fn warm_up(cache: &IanaCache, client: &reqwest::Client) -> bool {
+    let budget =
+        compute_startup_timeout(std::env::var("IANA_STARTUP_TIMEOUT_SECS").ok().as_deref());
+    match tokio::time::timeout(budget, fetch_iana(client)).await {
+        Ok(Ok(servers)) => {
+            tracing::info!(
+                count = servers.len(),
+                "loaded IANA RDAP object tags before serving"
+            );
+            *cache.write().await = servers;
+            true
+        }
+        Ok(Err(err)) => {
+            tracing::warn!("IANA unavailable at startup: {err}; serving with bootstrap only");
+            false
+        }
+        Err(_) => {
+            tracing::warn!(
+                "IANA startup fetch timed out after {:?}; serving with bootstrap only",
+                budget
+            );
+            false
+        }
+    }
+}
+
+/// Spawns a background task that keeps the cache fresh *during* serving.
+///
+/// Sleep-first: it waits before each fetch rather than fetching on spawn, so
+/// it never duplicates the startup [`warm_up`]. The first wait is the short
+/// [`RETRY_SECS`] when the cache is still empty (warm-up failed) and the
+/// normal interval otherwise; thereafter each wait is chosen by
+/// [`next_delay`] from the previous fetch's outcome. A successful fetch
+/// replaces the cached list; a failed fetch keeps the last-good value and
+/// logs a warning, so a transient IANA outage never empties the dropdown.
 ///
 /// Must be called from within a Tokio runtime (the task is spawned with
 /// [`tokio::spawn`]).
-pub fn spawn_refresher(cache: IanaCache) {
+pub fn spawn_refresher(cache: IanaCache, client: reqwest::Client) {
     let interval = compute_refresh_interval(std::env::var("IANA_REFRESH_SECS").ok().as_deref());
-    let client = reqwest::Client::new();
+    let retry = Duration::from_secs(RETRY_SECS);
 
     tokio::spawn(async move {
+        // Recover quickly if the startup warm-up left the cache empty.
+        let mut delay = if cache.read().await.is_empty() {
+            retry
+        } else {
+            interval
+        };
         loop {
+            tokio::time::sleep(delay).await;
             match fetch_iana(&client).await {
                 Ok(servers) => {
                     tracing::info!(count = servers.len(), "refreshed IANA RDAP object tags");
                     *cache.write().await = servers;
+                    delay = next_delay(true, interval, retry);
                 }
                 Err(err) => {
                     tracing::warn!("failed to refresh IANA RDAP object tags: {err}");
+                    delay = next_delay(false, interval, retry);
                 }
             }
-            tokio::time::sleep(interval).await;
         }
     });
 }
@@ -340,6 +414,31 @@ mod tests {
         assert_eq!(
             compute_refresh_interval(Some("not-a-number")),
             Duration::from_secs(DEFAULT_REFRESH_SECS)
+        );
+    }
+
+    #[test]
+    fn next_delay_success_uses_interval_failure_uses_retry() {
+        // GIVEN an interval and a shorter retry
+        let interval = Duration::from_secs(3600);
+        let retry = Duration::from_secs(60);
+        // THEN a success waits the full interval, a failure retries sooner
+        assert_eq!(next_delay(true, interval, retry), interval);
+        assert_eq!(next_delay(false, interval, retry), retry);
+    }
+
+    #[test]
+    fn startup_timeout_defaults_and_clamps() {
+        // GIVEN unset / valid / below-floor values
+        // THEN default, honored value, and floor respectively
+        assert_eq!(
+            compute_startup_timeout(None),
+            Duration::from_secs(DEFAULT_STARTUP_TIMEOUT_SECS)
+        );
+        assert_eq!(compute_startup_timeout(Some("20")), Duration::from_secs(20));
+        assert_eq!(
+            compute_startup_timeout(Some("0")),
+            Duration::from_secs(MIN_STARTUP_TIMEOUT_SECS)
         );
     }
 }

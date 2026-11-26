@@ -217,10 +217,16 @@ fn normalize_base(base: &str) -> String {
 
 /// Builds the explorer router mounted at `base`.
 ///
-/// Spawns the background IANA refresher, so this must be called from within a
-/// Tokio runtime (the binary's `#[tokio::main]` satisfies this). Each call
-/// starts one long-lived refresher task; call it once at startup.
-pub fn router(base: &str) -> Router {
+/// Performs a best-effort initial IANA fetch (bounded by
+/// `IANA_STARTUP_TIMEOUT_SECS`, default 10s) *before returning*, so the
+/// "IANA Registered" group is populated before the first request is
+/// answered. If IANA is unreachable or slow, the server still starts with a
+/// bootstrap-only dropdown and the background refresher retries.
+///
+/// Must be awaited from within a Tokio runtime (the binary's
+/// `#[tokio::main]` satisfies this). Each call starts one long-lived
+/// refresher task; call it once at startup.
+pub async fn router(base: &str) -> Router {
     let base = normalize_base(base);
     let url_base = if base == "/" {
         String::new()
@@ -232,12 +238,13 @@ pub fn router(base: &str) -> Router {
     let cors_methods = std::env::var("CORS_METHODS").unwrap_or_else(|_| "*".to_string());
     let cors_headers = std::env::var("CORS_HEADERS").unwrap_or_else(|_| "*".to_string());
 
-    // Seed an empty IANA cache and kick off the background refresher. The
-    // server starts serving immediately; the "IANA Registered" group fills
-    // in once the first fetch lands and degrades to bootstrap-only if IANA
-    // is unreachable.
+    // Populate the IANA cache before serving (bounded), then keep it fresh
+    // in the background. One client is shared by the warm-up and the
+    // refresher so its connection pool/TLS config stays warm.
+    let client = reqwest::Client::new();
     let iana: IanaCache = Arc::new(RwLock::new(Vec::new()));
-    iana::spawn_refresher(iana.clone());
+    iana::warm_up(&iana, &client).await;
+    iana::spawn_refresher(iana.clone(), client);
 
     let app = Router::new()
         .route("/", get(render_explorer))
