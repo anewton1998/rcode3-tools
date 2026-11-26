@@ -1,0 +1,43 @@
+[package]
+name = "db"
+version.workspace = true
+edition.workspace = true
+
+# Generic Postgres access layer for the rcode3-tools workspace. Wraps a sqlx
+# `PgPool` behind a small `Db` handle (cloneable for axum `State` sharing), owns
+# the migrations, and exposes runtime-query repositories: a generic job queue
+# (`queue`) and the RDAP result store (`results`). The `widgets` module is an
+# example schema that consumers copy for their own tables.
+
+[features]
+# Exposes `testutil::fresh_db()` — a testcontainers-backed Postgres helper — to
+# downstream crates' integration tests. Off by default so the production build
+# never pulls the Docker client.
+testutil = ["dep:testcontainers", "dep:testcontainers-modules"]
+
+[dependencies]
+# `chrono` is re-exported through the row-model timestamps; sqlx's `chrono`
+# feature maps `timestamptz` <-> `DateTime<Utc>`.
+chrono = "0.4"
+# Config is read from env vars (DATABASE_URL, pool sizing) via dotenvy, matching
+# the workspace convention.
+dotenvy = { workspace = true }
+# `ipnet::IpNet` binds to the `inet` column type (via sqlx's `ipnet` feature);
+# the results API keeps a std-only surface and converts internally.
+ipnet = "2"
+# Runtime queries only (no compile-time DATABASE_URL needed). rustls TLS keeps the
+# workspace off native-tls/openssl for this crate. `ipnet` adds the inet mapping.
+sqlx = { workspace = true, features = ["ipnet"] }
+# Structured logging for connect/migrate lifecycle events.
+tracing = { workspace = true }
+# Domain error enum (mirrors the workspace's thiserror-based error style).
+thiserror = { workspace = true }
+# `uuid::Uuid` is the Rust-side `id` type; sqlx's `uuid` feature binds it.
+uuid = { version = "1", features = ["v4"] }
+# Optional, gated behind the `testutil` feature: a throwaway Postgres for tests.
+testcontainers = { workspace = true, optional = true }
+testcontainers-modules = { workspace = true, optional = true }
+
+[dev-dependencies]
+# Integration tests drive the async runner under tokio.
+tokio = { workspace = true }

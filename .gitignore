@@ -2,3 +2,4 @@
 .env
 apps/rdap-explorer/static/wasm/
 apps/dns-explorer/static/wasm/
+work/*

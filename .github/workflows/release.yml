@@ -20,6 +20,11 @@ jobs:
     runs-on: ubuntu-latest
     container:
       image: rust:1-slim-bookworm
+      # The `db` crate's integration tests use testcontainers, which talks to the
+      # runner's Docker daemon through the mounted socket (testcontainers-rs /
+      # bollard auto-detect /var/run/docker.sock). The ryuk reaper container is
+      # started the same way.
+      options: --mount type=bind,source=/var/run/docker.sock,target=/var/run/docker.sock
     steps:
       - uses: actions/checkout@v4
 
@@ -43,7 +48,9 @@ jobs:
                 "wasm-pack-v${WASM_PACK_VERSION}-x86_64-unknown-linux-musl/wasm-pack"
 
       - name: Test
-        run: cargo test --workspace
+        # `db/testutil` enables the testcontainers-backed `fresh_db()` helper the
+        # db and support-bin integration tests need (Docker socket is mounted above).
+        run: cargo test --workspace --features db/testutil
 
   release:
     needs: test
