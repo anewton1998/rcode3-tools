@@ -85,6 +85,19 @@
             baseUrlChoice: (document.querySelector('meta[name="rdap-bootstrap-url"]') || {}).content || '',
             baseUrlCustom: '',
             baseUrlError: '',
+            // The hardcoded bootstrap redirectors (from the server-rendered
+            // meta tag). Targeted / Experimental queries against one of these
+            // draw an advisory warning; IANA-registered and custom bases do
+            // not. Guarded so a missing/malformed meta degrades to empty.
+            bootstrapServers: (function () {
+                try {
+                    const m = document.querySelector('meta[name="rdap-bootstrap-servers"]');
+                    const a = m ? JSON.parse(m.content) : [];
+                    return Array.isArray(a) ? a : [];
+                } catch (_) {
+                    return [];
+                }
+            })(),
             result: '',
             error: '',
             busy: false,
@@ -102,10 +115,10 @@
                 return this.queryType === 'url';
             },
 
-            // Targeted and Experimental queries can't be served by the generic
-            // bootstrap redirector, so they require a custom base URL. Derived
-            // from the loaded query-type groups by their display labels.
-            get requiresCustomBase() {
+            // Targeted and Experimental query types (by their group display
+            // labels). These are best served by a direct registry server; a
+            // generic bootstrap redirector may not answer them.
+            get isTargetedOrExperimental() {
                 const t = this.queryType;
                 if (!t) return false;
                 const groups = this.queryTypeGroups || [];
@@ -120,18 +133,18 @@
                 return false;
             },
 
-            // The dropdown is locked when the base is irrelevant (Explicit URL)
-            // or when it is forced to Custom (Targeted / Experimental).
-            get baseSelectDisabled() {
-                return this.isUrlType || this.requiresCustomBase;
+            // Advisory: a targeted / experimental query pointed at one of the
+            // hardcoded bootstrap redirectors. Purely a warning — the lookup
+            // still runs. IANA-registered and custom bases never match.
+            get baseTypeMismatch() {
+                return this.isTargetedOrExperimental
+                    && this.bootstrapServers.includes(this.baseUrlChoice);
             },
 
-            // Force the Custom choice (revealing the text box) for query types
-            // that require a custom base. No-op otherwise.
-            enforceCustomBaseIfNeeded() {
-                if (this.requiresCustomBase && this.baseUrlChoice !== 'custom') {
-                    this.baseUrlChoice = 'custom';
-                }
+            // The dropdown is locked only when the base is irrelevant
+            // (Explicit URL). Targeted / Experimental stay selectable.
+            get baseSelectDisabled() {
+                return this.isUrlType;
             },
 
             async init() {
@@ -141,8 +154,6 @@
                 // Persist the base-URL selection whenever it changes.
                 this.$watch('baseUrlChoice', () => this.persistBaseUrl());
                 this.$watch('baseUrlCustom', () => this.persistBaseUrl());
-                // Selecting a Targeted / Experimental type forces Custom.
-                this.$watch('queryType', () => this.enforceCustomBaseIfNeeded());
 
                 // Pick up a query handed off from the home page's Explore form
                 // (e.g. /rdap-explorer?query=example.com) and run it once the
@@ -153,7 +164,8 @@
                 this.applyBaseParams(params);
 
                 // Ensure the WASM client and the query-type groups are ready
-                // before touching queryType, so requiresCustomBase is accurate.
+                // before touching queryType, so isTargetedOrExperimental is
+                // accurate when the warning is evaluated.
                 if (!window.RdapClient) {
                     await new Promise((resolve) =>
                         window.addEventListener('rdap-ready', resolve, { once: true }));
@@ -162,13 +174,10 @@
                 catch (e) { console.error('failed to load query types', e); }
 
                 // A shared `?type=help` link runs with an empty query box,
-                // mirroring the blank-input exception in lookup() (the
-                // custom-base requirement still applies as for any
-                // Targeted query).
+                // mirroring the blank-input exception in lookup().
                 if (incoming || params.get('type') === 'help') {
                     this.query = incoming.slice(0, QUERY_MAX);
                     this.queryType = params.get('type') || 'auto';
-                    this.enforceCustomBaseIfNeeded();
                     await this.lookup();
                 } else {
                     // Keep the WASM client's bootstrap in sync with the chosen base.
@@ -187,10 +196,6 @@
                 // Explicit URL, which carries its own full URL and ignores
                 // the base. An invalid custom base aborts before going busy.
                 if (t !== 'url') {
-                    if (this.requiresCustomBase && this.baseUrlChoice !== 'custom') {
-                        this.baseUrlError = 'This query type requires a custom base URL';
-                        return;
-                    }
                     const base = this.resolvedBaseUrl();
                     if (this.baseUrlChoice === 'custom' && !isValidHttpUrl(base)) {
                         this.baseUrlError = 'Enter a valid http(s) base URL';
@@ -356,8 +361,8 @@
                 this.query = entry.query;
                 // Restore the base URL this query was originally run with (when
                 // recorded and still valid); otherwise keep the current base.
-                // Applied before queryType so the custom-base enforcement for
-                // Targeted / Experimental types can't clobber a consistent entry.
+                // Applied before queryType so the restored base is in place
+                // when the targeted/experimental warning is evaluated.
                 if (entry.base) {
                     this.applyBaseSelection(entry.base, entry.baseCustom);
                 }
@@ -510,7 +515,7 @@
                     </div>
                 </div>
                 <span class="base_url_note" x-show="isUrlType">Explicit URL ignores the base URL.</span>
-                <span class="base_url_note" x-show="requiresCustomBase">Targeted and Experimental queries require a custom base URL.</span>
+                <span class="warning_text warning_line" x-show="baseTypeMismatch">Query type may not be appropriate for this server.</span>
                 <span x-show="busy">{{ progress_bar_html|safe }}</span>
                 <span class="error_text error_line" x-show="baseUrlError" x-text="baseUrlError"></span>
                 <span class="error_text error_line" x-show="error" x-text="error"></span>

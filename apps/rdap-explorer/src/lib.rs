@@ -32,6 +32,7 @@ struct Explorer {
     base: String,
     home_url: String,
     bootstrap_url: String,
+    bootstrap_servers: String,
     exts_list: String,
 }
 
@@ -181,6 +182,10 @@ async fn render_explorer(
         base: state.base.clone(),
         home_url,
         bootstrap_url: base_default,
+        // The hardcoded bootstrap redirectors, as JSON, so the client can
+        // warn when a targeted/experimental query is pointed at one of them.
+        bootstrap_servers: serde_json::to_string(BOOTSTRAP_SERVERS)
+            .unwrap_or_else(|_| "[]".to_string()),
         exts_list: std::env::var("EXTS_LIST").unwrap_or_default(),
     };
 
@@ -384,6 +389,27 @@ mod tests {
         // THEN the stored option/default have the trailing slash stripped
         assert_eq!(options[0], "https://x.example/rdap");
         assert_eq!(default, "https://x.example/rdap");
+    }
+
+    #[test]
+    fn bootstrap_servers_meta_is_json_of_hardcoded_redirectors() {
+        // GIVEN the hardcoded bootstrap redirectors
+        // WHEN serialized for the rdap-bootstrap-servers meta tag
+        let json = serde_json::to_string(BOOTSTRAP_SERVERS).unwrap();
+        // THEN it round-trips back to exactly the const list (the client
+        // matches the selected base against these exact strings)
+        let parsed: Vec<String> = serde_json::from_str(&json).unwrap();
+        assert_eq!(parsed, BOOTSTRAP_SERVERS.to_vec());
+    }
+
+    #[test]
+    fn bootstrap_servers_json_is_html_safe_in_attribute() {
+        // The JSON contains double quotes; askama escapes them to &quot; in
+        // the meta content attribute and the browser decodes them back, so
+        // the serialized form must be valid JSON on its own.
+        let json = serde_json::to_string(BOOTSTRAP_SERVERS).unwrap();
+        assert!(json.starts_with('[') && json.ends_with(']'));
+        assert!(serde_json::from_str::<Vec<String>>(&json).is_ok());
     }
 
     #[test]

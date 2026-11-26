@@ -291,6 +291,15 @@
 	animation: blink-error-text 1s infinite;
 }
 
+/* The standalone advisory warning line (e.g. a targeted/experimental query
+   pointed at a bootstrap server). Block layout like `.error_line` but no
+   blink — it is advisory, not an error. Color comes from `.warning_text`. */
+.warning_line {
+	display: block;
+	margin-top: .35em;
+	font-size: .85em;
+}
+
 /* ---- Summary query-history list ---- */
 .summary_header {
 	display: flex;
