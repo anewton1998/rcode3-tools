@@ -14,7 +14,7 @@ pub mod theme;
 pub use components::button::Button;
 pub use components::link_nav::{LinkNav, NavItem};
 pub use components::progress_bar::ProgressBar;
-pub use components::select::{Select, SelectOption};
+pub use components::select::{Select, SelectGroup, SelectOption};
 pub use components::status_text::{StatusLevel, StatusText};
 pub use components::text_area::TextArea;
 pub use components::text_input::TextInput;

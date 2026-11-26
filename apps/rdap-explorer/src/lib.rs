@@ -6,11 +6,18 @@ use axum::{
     response::Html,
     routing::{get, post},
 };
+use std::collections::HashSet;
+use std::sync::Arc;
+use tokio::sync::RwLock;
 use tower_http::services::ServeDir;
 use tower_http::set_header::SetResponseHeaderLayer;
 use tower_http::trace::{DefaultMakeSpan, DefaultOnResponse, TraceLayer};
 use tracing::Level;
-use ui_components::{ProgressBar, Select, TextInput, Theme, ThemeAppSelect};
+use ui_components::{ProgressBar, Select, SelectOption, TextInput, Theme, ThemeAppSelect};
+
+pub mod iana;
+
+use iana::{IanaCache, IanaServer};
 
 #[derive(Template)]
 #[template(path = "explorer.html")]
@@ -28,6 +35,13 @@ struct Explorer {
     exts_list: String,
 }
 
+/// Shared request state: the mount base plus the refreshable IANA cache.
+#[derive(Clone)]
+struct AppState {
+    base: String,
+    iana: IanaCache,
+}
+
 /// The RDAP bootstrap servers offered in the base-URL dropdown, in display
 /// order. Ingested from the (now-removed) `bootstrap-servers.txt`.
 const BOOTSTRAP_SERVERS: &[&str] = &[
@@ -38,7 +52,7 @@ const BOOTSTRAP_SERVERS: &[&str] = &[
 
 /// Trims whitespace and trailing slashes so base-URLs compare equal regardless
 /// of a trailing slash.
-fn normalize_bootstrap(url: &str) -> String {
+pub(crate) fn normalize_bootstrap(url: &str) -> String {
     url.trim().trim_end_matches('/').to_string()
 }
 
@@ -70,6 +84,27 @@ fn compute_base_url(env_bootstrap: &str) -> (Vec<String>, String) {
     (options, env)
 }
 
+/// Builds the "IANA Registered" dropdown options from the cached servers,
+/// dropping any whose normalized URL is already offered under the Bootstrap
+/// group (so a provider like `rcode3` that appears in both lists shows once).
+///
+/// The returned options borrow from `servers`, so the caller must keep the
+/// cache read guard alive until the rendered HTML has been produced.
+fn iana_display_options<'a>(
+    servers: &'a [IanaServer],
+    bootstrap: &[String],
+) -> Vec<SelectOption<'a>> {
+    let taken: HashSet<String> = bootstrap.iter().map(|s| normalize_bootstrap(s)).collect();
+    servers
+        .iter()
+        .filter(|s| !taken.contains(&s.key))
+        .map(|s| SelectOption {
+            value: s.url.as_str(),
+            label: s.tag.as_str(),
+        })
+        .collect()
+}
+
 #[derive(Template)]
 #[template(path = "status.html")]
 struct StatusMessage {
@@ -81,7 +116,7 @@ fn render_error(_: askama::Error) -> StatusCode {
 }
 
 async fn render_explorer(
-    State(base): State<String>,
+    State(state): State<AppState>,
 ) -> Result<(HeaderMap, Html<String>), StatusCode> {
     let home_url = std::env::var("HOME_URL").unwrap_or_else(|_| "/".to_string());
 
@@ -94,19 +129,41 @@ async fn render_explorer(
         .x_model("queryType")
         .groups_expr("queryTypeGroups");
 
-    // Base-URL dropdown: the bootstrap servers plus a "Custom" entry that
-    // reveals the text box. Disabled (with a note) for the Explicit URL type,
-    // which ignores any base URL.
+    // Base-URL dropdown: a "Bootstrap" group (the configured servers), an
+    // "IANA Registered" group (fetched at runtime, deduped against the
+    // bootstrap set), and a trailing "Custom" entry that reveals the text
+    // box. Disabled (with a note) for the Explicit URL type, which ignores
+    // any base URL.
     let (base_options, base_default) =
         compute_base_url(&std::env::var("BOOTSTRAP_URL").unwrap_or_default());
-    let mut base_url_select = Select::new("base_url")
-        .x_model("baseUrlChoice")
-        .x_bind_disabled("baseSelectDisabled")
-        .selected(&base_default);
-    for opt in &base_options {
-        base_url_select = base_url_select.option(opt, opt);
-    }
-    let base_url_select = base_url_select.option("custom", "Custom");
+
+    // The IANA options borrow from the cached servers, so the read guard is
+    // held until the select has been rendered to a String.
+    let base_url_select_html = {
+        let iana = state.iana.read().await;
+        let bootstrap_opts: Vec<SelectOption<'_>> = base_options
+            .iter()
+            .map(|s| SelectOption {
+                value: s.as_str(),
+                label: s.as_str(),
+            })
+            .collect();
+        let iana_opts = iana_display_options(&iana, &base_options);
+        let mut select = Select::new("base_url")
+            .x_model("baseUrlChoice")
+            .x_bind_disabled("baseSelectDisabled")
+            .selected(&base_default)
+            .group("Bootstrap", bootstrap_opts);
+        // Omit the IANA group entirely until the first fetch populates it,
+        // rather than rendering an empty <optgroup>.
+        if !iana_opts.is_empty() {
+            select = select.group("IANA Registered", iana_opts);
+        }
+        select
+            .option("custom", "Custom")
+            .render()
+            .map_err(render_error)?
+    };
 
     let base_url_input = TextInput::new("base_url_custom")
         .x_model("baseUrlCustom")
@@ -116,16 +173,17 @@ async fn render_explorer(
     let page = Explorer {
         search_input_html: search_input.render().map_err(render_error)?,
         query_type_select_html: query_type_select.render().map_err(render_error)?,
-        base_url_select_html: base_url_select.render().map_err(render_error)?,
+        base_url_select_html,
         base_url_input_html: base_url_input.render().map_err(render_error)?,
         progress_bar_html: ProgressBar.render().map_err(render_error)?,
         theme_app_html: ThemeAppSelect::new().render().map_err(render_error)?,
         theme: Theme::from_env().class_name(),
-        base,
+        base: state.base.clone(),
         home_url,
         bootstrap_url: base_default,
         exts_list: std::env::var("EXTS_LIST").unwrap_or_default(),
     };
+
     // The page embeds runtime config (bootstrap default, exts list) and the
     // inline app JS, so it must never be cached — a stale copy would ship old
     // logic and a stale base-URL default.
@@ -152,6 +210,11 @@ fn normalize_base(base: &str) -> String {
     b
 }
 
+/// Builds the explorer router mounted at `base`.
+///
+/// Spawns the background IANA refresher, so this must be called from within a
+/// Tokio runtime (the binary's `#[tokio::main]` satisfies this). Each call
+/// starts one long-lived refresher task; call it once at startup.
 pub fn router(base: &str) -> Router {
     let base = normalize_base(base);
     let url_base = if base == "/" {
@@ -163,6 +226,13 @@ pub fn router(base: &str) -> Router {
     let cors_origin = std::env::var("CORS_ORIGIN").unwrap_or_else(|_| "*".to_string());
     let cors_methods = std::env::var("CORS_METHODS").unwrap_or_else(|_| "*".to_string());
     let cors_headers = std::env::var("CORS_HEADERS").unwrap_or_else(|_| "*".to_string());
+
+    // Seed an empty IANA cache and kick off the background refresher. The
+    // server starts serving immediately; the "IANA Registered" group fills
+    // in once the first fetch lands and degrades to bootstrap-only if IANA
+    // is unreachable.
+    let iana: IanaCache = Arc::new(RwLock::new(Vec::new()));
+    iana::spawn_refresher(iana.clone());
 
     let app = Router::new()
         .route("/", get(render_explorer))
@@ -199,7 +269,10 @@ pub fn router(base: &str) -> Router {
                 .make_span_with(DefaultMakeSpan::new().level(Level::INFO))
                 .on_response(DefaultOnResponse::new().level(Level::INFO)),
         )
-        .with_state(url_base);
+        .with_state(AppState {
+            base: url_base,
+            iana,
+        });
 
     if base == "/" {
         app
@@ -329,5 +402,44 @@ mod tests {
                 "default {default} not in options for {env:?}"
             );
         }
+    }
+
+    #[test]
+    fn iana_options_drop_bootstrap_duplicates_and_label_by_tag() {
+        // GIVEN a bootstrap set and an IANA set that overlaps on one URL
+        let bootstrap = vec!["https://bootstrap.rcode3.com/rdap".to_string()];
+        let servers = vec![
+            IanaServer {
+                tag: "rcode3".to_string(),
+                url: "https://bootstrap.rcode3.com/rdap/".to_string(),
+                key: "https://bootstrap.rcode3.com/rdap".to_string(),
+            },
+            IanaServer {
+                tag: "ARIN".to_string(),
+                url: "https://rdap.arin.net/registry/".to_string(),
+                key: "https://rdap.arin.net/registry".to_string(),
+            },
+        ];
+        // WHEN the display options are built
+        let opts = iana_display_options(&servers, &bootstrap);
+        // THEN the bootstrap duplicate is dropped and the survivor is
+        // labelled by tag with the URL as its value
+        assert_eq!(opts.len(), 1);
+        assert_eq!(opts[0].label, "ARIN");
+        assert_eq!(opts[0].value, "https://rdap.arin.net/registry/");
+    }
+
+    #[test]
+    fn iana_options_empty_when_all_duplicated() {
+        // GIVEN an IANA set fully covered by the bootstrap set
+        let bootstrap = vec!["https://a.example/rdap/".to_string()];
+        let servers = vec![IanaServer {
+            tag: "A".to_string(),
+            url: "https://a.example/rdap".to_string(),
+            key: "https://a.example/rdap".to_string(),
+        }];
+        // WHEN built
+        // THEN nothing remains (trailing-slash-insensitive dedup)
+        assert!(iana_display_options(&servers, &bootstrap).is_empty());
     }
 }

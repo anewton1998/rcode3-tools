@@ -10,6 +10,15 @@
     </optgroup>
   </template>
 {% else %}
+  {%- if !groups.is_empty() %}
+    {%- for g in groups %}
+    <optgroup label="{{ g.label }}">
+      {%- for opt in g.options %}
+      <option value="{{ opt.value }}"{% if let Some(sel) = selected %}{% if *sel == opt.value %} selected{% endif %}{% endif %}>{{ opt.label }}</option>
+      {%- endfor %}
+    </optgroup>
+    {%- endfor %}
+  {%- endif %}
   {%- for opt in options %}
   <option value="{{ opt.value }}"{% if let Some(sel) = selected %}{% if *sel == opt.value %} selected{% endif %}{% endif %}>{{ opt.label }}</option>
   {%- endfor %}
