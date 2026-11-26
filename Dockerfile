@@ -60,6 +60,14 @@ RUN set -eux; \
 # ---------------------------------------------------------------------------
 FROM debian:bookworm-slim AS runtime
 
+# reqwest's `rustls` feature verifies TLS via rustls-platform-verifier, which
+# loads the *system* trust store at Client::new(). bookworm-slim ships without
+# any CA bundle, so without this the gateway panics with
+# "No CA certificates were loaded from the system".
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends ca-certificates \
+    && rm -rf /var/lib/apt/lists/*
+
 RUN useradd --system --uid 10001 --user-group \
         --home-dir /app --shell /usr/sbin/nologin app
 
