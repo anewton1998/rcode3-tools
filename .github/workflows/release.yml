@@ -21,10 +21,12 @@ jobs:
     container:
       image: rust:1-slim-bookworm
       # The `db` crate's integration tests use testcontainers, which talks to the
-      # runner's Docker daemon through the mounted socket (testcontainers-rs /
-      # bollard auto-detect /var/run/docker.sock). The ryuk reaper container is
-      # started the same way.
-      options: --mount type=bind,source=/var/run/docker.sock,target=/var/run/docker.sock
+      # runner's Docker daemon through /var/run/docker.sock. The GitHub runner
+      # already bind-mounts that socket into every container job, so no explicit
+      # `options:` mount is needed (adding one causes "Duplicate mount point").
+      # testcontainers-rs detects /.dockerenv and resolves the mapped ports via
+      # the bridge network gateway, so the Postgres container is reachable from
+      # inside this job container.
     steps:
       - uses: actions/checkout@v4
 
