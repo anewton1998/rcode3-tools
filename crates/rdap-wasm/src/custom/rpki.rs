@@ -45,8 +45,8 @@ fn as_lookup_link(n: &Numberish<u32>) -> String {
 /// contains a colon) and by whether it carries a `/` prefix length.
 ///
 /// Routed through [`addr_with_scopes`] so bare addresses also carry the
-/// cross-app `(⌕ … PTR)` reverse-query link; CIDR prefixes (a `_cidr` base
-/// code) are excluded from the `PTR` link automatically.
+/// cross-app `PTR` reverse-query link and the in-page `RDNS` query link;
+/// CIDR prefixes (a `_cidr` base code) are excluded from both automatically.
 fn ip_lookup(s: &str) -> String {
     let base = match (s.contains(':'), s.contains('/')) {
         (true, true) => "ip_v6_cidr",
@@ -518,7 +518,7 @@ mod tests {
     }
 
     #[test]
-    fn x509_bare_ip_uses_addr_query_base() {
+    fn x509_bare_ip_uses_addr_query_base_and_rdns_link() {
         // GIVEN a cert listing a bare (non-CIDR) IPv4 address
         let json = r#"{
             "objectClassName": "rpki1_x509ResourceCert",
@@ -532,6 +532,11 @@ mod tests {
         assert!(
             html.contains("query = '192.0.2.1'; queryType = 'ip_v4_addr'; lookup()"),
             "{html}"
+        );
+        // and also carries the in-page RDNS query link
+        assert!(
+            html.contains("query = 'rdns:192.0.2.1'; queryType = 'auto'; lookup()"),
+            "missing RDNS link for bare IP: {html}"
         );
     }
 }

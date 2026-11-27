@@ -165,7 +165,7 @@ mod tests {
     }
 
     #[test]
-    fn nameserver_ips_carry_ptr_reverse_query_link() {
+    fn nameserver_ips_carry_ptr_and_rdns_reverse_query_links() {
         // GIVEN a nameserver with a v4 and a v6 address
         let json = r#"{
             "objectClassName": "nameserver",
@@ -187,10 +187,21 @@ mod tests {
             html.contains("ip6.arpa&amp;type=PTR"),
             "missing v6 PTR link: {html}"
         );
-        // and the PTR trails the scope icons (end placement)
+        // and an in-page RDNS query link for the bare address
+        assert!(
+            html.contains("query = 'rdns:192.0.2.1'; queryType = 'auto'; lookup()"),
+            "missing v4 RDNS link: {html}"
+        );
+        assert!(
+            html.contains("query = 'rdns:2001:db8::1'; queryType = 'auto'; lookup()"),
+            "missing v6 RDNS link: {html}"
+        );
+        // and the PTR trails the scope icons, with RDNS trailing the PTR
         let icon = html.find("rdap-icon rdap-top").expect("top icon: {html}");
         let ptr = html.find(">PTR</a>").expect("PTR link: {html}");
+        let rdns = html.find(">RDNS</span>").expect("RDNS link: {html}");
         assert!(icon < ptr, "PTR should trail the scope icons: {html}");
+        assert!(ptr < rdns, "RDNS should trail the PTR: {html}");
     }
 
     #[test]

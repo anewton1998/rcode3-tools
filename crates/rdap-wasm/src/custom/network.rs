@@ -171,7 +171,7 @@ mod tests {
     }
 
     #[test]
-    fn bare_addresses_carry_ptr_link_but_cidrs_do_not() {
+    fn bare_addresses_carry_ptr_and_rdns_links_but_cidrs_do_not() {
         // GIVEN a network with bare start/end addresses and a CIDR entry
         let json = r#"{
             "objectClassName": "network",
@@ -194,10 +194,31 @@ mod tests {
             html.contains("ip6.arpa&amp;type=PTR"),
             "missing v6 PTR link: {html}"
         );
-        // and the PTR trails the scope icons (end placement)
+        // and an in-page RDNS query link for each bare address
+        assert!(
+            html.contains("query = 'rdns:192.0.2.1'; queryType = 'auto'; lookup()"),
+            "missing v4 RDNS link: {html}"
+        );
+        assert!(
+            html.contains("query = 'rdns:2001:db8::1'; queryType = 'auto'; lookup()"),
+            "missing v6 RDNS link: {html}"
+        );
+        // but the CIDR row does not get an RDNS link
+        assert!(
+            !html.contains("query = 'rdns:192.0.2.0/24'"),
+            "CIDR should have no RDNS link: {html}"
+        );
+        assert_eq!(
+            html.matches(">RDNS</span>").count(),
+            2,
+            "only the two bare addresses should carry RDNS links: {html}"
+        );
+        // and the PTR trails the scope icons, with RDNS trailing the PTR
         let icon = html.find("rdap-icon rdap-top").expect("top icon: {html}");
         let ptr = html.find(">PTR</a>").expect("PTR link: {html}");
+        let rdns = html.find(">RDNS</span>").expect("RDNS link: {html}");
         assert!(icon < ptr, "PTR should trail the scope icons: {html}");
+        assert!(ptr < rdns, "RDNS should trail the PTR: {html}");
     }
 
     #[test]

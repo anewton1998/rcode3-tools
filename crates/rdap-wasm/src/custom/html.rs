@@ -317,20 +317,27 @@ pub(crate) fn lookup_with_scopes(value: &str, base_code: &str, display: &str) ->
 ///
 /// Bare addresses (a `base_code` ending in `_addr`) additionally get a
 /// trailing cross-app reverse-query `PTR` link (see
-/// [`ptr_query_link_html`]) appended after the scope icons, so the cell
-/// reads `(⌕ … PTR)`. CIDRs and other prefixes get no `PTR`, since a
-/// reverse query against a prefix is meaningless. The no-`PTR` path
-/// renders byte-identically to [`lookup_with_scopes`].
+/// [`ptr_query_link_html`]) and an in-page RDNS query link (see
+/// [`rdns_query_link_html`]) appended after the scope icons, so the cell
+/// reads `(⌕ … PTR RDNS)`. CIDRs and other prefixes get neither link,
+/// since a reverse query against a prefix is meaningless. The no-extra
+/// path renders byte-identically to [`lookup_with_scopes`].
 pub(crate) fn addr_with_scopes(value: &str, base_code: &str) -> String {
     if value.is_empty() {
         return mono(value);
     }
-    let ptr = if base_code.ends_with("_addr") {
-        ptr_query_link_html(value)
+    let extra = if base_code.ends_with("_addr") {
+        let ptr = ptr_query_link_html(value);
+        let rdns = rdns_query_link_html(value);
+        [ptr, rdns]
+            .into_iter()
+            .filter(|s| !s.is_empty())
+            .collect::<Vec<_>>()
+            .join(" ")
     } else {
         String::new()
     };
-    lookup_with_scopes_extra(value, base_code, &mono(value), &ptr)
+    lookup_with_scopes_extra(value, base_code, &mono(value), &extra)
 }
 
 /// Percent-encodes a value for safe inclusion in a URL query component,
@@ -453,6 +460,31 @@ pub(crate) fn ptr_query_link_html(ip: &str) -> String {
     format!(
         "<a class=\"ns_query_link\" href=\"{href}\" title=\"{label}\" aria-label=\"{label}\">PTR</a>"
     )
+}
+
+/// Renders a single in-page RDNS query link for a bare IP address.
+///
+/// The link sets the explorer query to `rdns:<ip>` and the query type to
+/// `auto`, matching the prefixed example syntax already shown in the
+/// RDAP Explorer help panel. The address is parsed as a [`std::net::IpAddr`]
+/// first: a value that is not a bare IP (a CIDR prefix, a host name, or
+/// empty) renders as nothing, so callers can gate the `RDNS` link purely
+/// on this function's output.
+///
+/// The query uses the canonical `IpAddr` display form so non-canonical input
+/// (for example, uppercase IPv6 text) does not leak into the query box or
+/// query history. The tooltip keeps the trimmed input value for user-facing
+/// fidelity. The title is HTML-escaped by [`lookup_action_titled`], and the
+/// query/type strings are escaped for the single-quoted-JS-string-in-a-
+/// double-quoted-HTML-attribute context.
+pub(crate) fn rdns_query_link_html(ip: &str) -> String {
+    let trimmed = ip.trim();
+    let Ok(addr) = trimmed.parse::<IpAddr>() else {
+        return String::new();
+    };
+    let query = format!("rdns:{addr}");
+    let title = format!("Query RDNS for {trimmed}");
+    lookup_action_titled(&query, "auto", "RDNS", &title)
 }
 
 /// Adds a "Unicode Name" row only when it differs from the LDH name.
@@ -756,6 +788,89 @@ mod tests {
     }
 
     #[test]
+    fn rdns_query_link_renders_v4_auto_query() {
+        // GIVEN a bare IPv4 address
+        let html = rdns_query_link_html("192.0.2.1");
+
+        // THEN it is an in-page RDNS query with the rdns: prefix and auto type
+        assert!(
+            html.contains("query = 'rdns:192.0.2.1'; queryType = 'auto'; lookup()"),
+            "{html}"
+        );
+        assert!(html.contains(">RDNS</span>"), "missing RDNS label: {html}");
+        assert!(
+            html.contains("title=\"Query RDNS for 192.0.2.1\""),
+            "missing RDNS tooltip: {html}"
+        );
+    }
+
+    #[test]
+    fn rdns_query_link_renders_v6_auto_query() {
+        // GIVEN a bare IPv6 address
+        let html = rdns_query_link_html("2001:db8::1");
+
+        // THEN it preserves the IPv6 text inside the rdns: query
+        assert!(
+            html.contains("query = 'rdns:2001:db8::1'; queryType = 'auto'; lookup()"),
+            "{html}"
+        );
+        assert!(html.contains(">RDNS</span>"), "missing RDNS label: {html}");
+    }
+
+    #[test]
+    fn rdns_query_link_canonicalizes_non_canonical_ipv6() {
+        // GIVEN a non-canonical IPv6 address with leading zeros and uppercase hex
+        let html = rdns_query_link_html("2001:0DB8::0001");
+
+        // THEN the query uses the canonical lowercase display form
+        assert!(
+            html.contains("query = 'rdns:2001:db8::1'; queryType = 'auto'; lookup()"),
+            "{html}"
+        );
+        // while the tooltip keeps the trimmed input value
+        assert!(
+            html.contains("title=\"Query RDNS for 2001:0DB8::0001\""),
+            "{html}"
+        );
+    }
+
+    #[test]
+    fn rdns_query_link_renders_v4_mapped_v6() {
+        // GIVEN an IPv4-mapped IPv6 address
+        let html = rdns_query_link_html("::ffff:1.2.3.4");
+
+        // THEN it renders the rdns: query for the mapped IPv6 form
+        assert!(
+            html.contains("query = 'rdns:::ffff:1.2.3.4'; queryType = 'auto'; lookup()"),
+            "{html}"
+        );
+        assert!(html.contains(">RDNS</span>"), "missing RDNS label: {html}");
+    }
+
+    #[test]
+    fn rdns_query_link_trims_whitespace_before_query() {
+        // GIVEN a bare IPv4 address with surrounding whitespace
+        let html = rdns_query_link_html("  192.0.2.1  ");
+
+        // THEN the query uses the trimmed address only
+        assert!(
+            html.contains("query = 'rdns:192.0.2.1'; queryType = 'auto'; lookup()"),
+            "{html}"
+        );
+        assert!(!html.contains("rdns:  192"), "whitespace leaked: {html}");
+    }
+
+    #[test]
+    fn rdns_query_link_non_ip_renders_nothing() {
+        // GIVEN values that are not bare IPs (a CIDR, a host name, empty)
+        // WHEN/THEN none of them produce an RDNS link
+        assert_eq!(rdns_query_link_html("192.0.2.0/24"), "");
+        assert_eq!(rdns_query_link_html("2001:db8::/32"), "");
+        assert_eq!(rdns_query_link_html("example.com"), "");
+        assert_eq!(rdns_query_link_html(""), "");
+    }
+
+    #[test]
     fn addr_with_scopes_appends_ptr_after_icons_for_bare_address() {
         // GIVEN a bare IPv4 address cell
         let html = addr_with_scopes("192.0.2.1", "ip_v4_addr");
@@ -765,6 +880,21 @@ mod tests {
         let icon = html.find("rdap-icon rdap-top").expect("top icon: {html}");
         let ptr = html.find(">PTR</a>").expect("PTR link: {html}");
         assert!(icon < ptr, "PTR should trail the scope icons: {html}");
+    }
+
+    #[test]
+    fn addr_with_scopes_appends_rdns_after_ptr_for_bare_address() {
+        // GIVEN a bare IPv4 address cell
+        let html = addr_with_scopes("192.0.2.1", "ip_v4_addr");
+
+        // THEN the RDNS link is present and sits AFTER the PTR link
+        assert!(
+            html.contains("query = 'rdns:192.0.2.1'; queryType = 'auto'; lookup()"),
+            "missing RDNS link: {html}"
+        );
+        let ptr = html.find(">PTR</a>").expect("PTR link: {html}");
+        let rdns = html.find(">RDNS</span>").expect("RDNS link: {html}");
+        assert!(ptr < rdns, "RDNS should trail PTR: {html}");
     }
 
     #[test]
@@ -778,6 +908,22 @@ mod tests {
             "CIDR should have no PTR: {html}"
         );
         assert!(html.contains("(\u{2315}"), "missing search glyph: {html}");
+    }
+
+    #[test]
+    fn addr_with_scopes_omits_rdns_for_cidr() {
+        // GIVEN a CIDR prefix cell
+        let html = addr_with_scopes("192.0.2.0/24", "ip_v4_cidr");
+
+        // THEN no RDNS link is emitted either
+        assert!(
+            !html.contains(">RDNS</span>"),
+            "CIDR should have no RDNS: {html}"
+        );
+        assert!(
+            !html.contains("query = 'rdns:"),
+            "CIDR should have no rdns query: {html}"
+        );
     }
 
     #[test]
