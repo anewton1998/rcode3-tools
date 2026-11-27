@@ -172,6 +172,7 @@ fn record_block(record: &Record, received: DateTime<Utc>) -> String {
                     display,
                     copy_label,
                 } => copy_value_html(&display, copy_label),
+                RdataValue::RawStrings { strings } => raw_strings_html(&strings),
             };
             rows.push(row_with_class(field.label, "wrap_value", value));
         }
@@ -301,6 +302,29 @@ fn copy_value_html(display: &str, copy_label: &str) -> String {
     )
 }
 
+/// Renders a TXT record's raw character-strings one per line, each with
+/// its own copy button.
+///
+/// The visible text is quoted so string boundaries are visible, but each
+/// copy button carries the unquoted string as `data-copy-value`. An empty
+/// list renders an em-dash placeholder.
+fn raw_strings_html(strings: &[String]) -> String {
+    if strings.is_empty() {
+        return "\u{2014}".to_string();
+    }
+    strings
+        .iter()
+        .map(|s| {
+            format!(
+                "&quot;{}&quot; {}",
+                escape(s),
+                copy_button_html(s, "raw string")
+            )
+        })
+        .collect::<Vec<_>>()
+        .join("<br>")
+}
+
 /// Renders an IP address as an in-page reverse-DNS query link.
 ///
 /// The visible text is the address itself; the link target is the PTR name
@@ -410,12 +434,19 @@ fn ttl_label(ttl: u32, received: DateTime<Utc>) -> String {
 /// attributes. DNS rdata (TXT strings in particular) can contain anything.
 /// Single quotes are escaped too so the output stays safe if a future edit
 /// interpolates it into a single-quoted attribute.
+///
+/// CR is escaped as `&#13;` because raw CR in an attribute value would be
+/// normalized by the HTML parser (`\r\n` -> `\n`) before the copy handler
+/// reads it. NUL cannot be represented in an HTML attribute; it is replaced
+/// with U+FFFD here, matching the browser's own replacement behavior.
 fn escape(text: &str) -> String {
     text.replace('&', "&amp;")
         .replace('<', "&lt;")
         .replace('>', "&gt;")
         .replace('"', "&quot;")
         .replace('\'', "&#39;")
+        .replace('\r', "&#13;")
+        .replace('\0', "\u{FFFD}")
 }
 
 #[cfg(test)]
@@ -558,6 +589,14 @@ mod tests {
             name.parse().expect("name"),
             ttl,
             RData::TXT(TXT::new(vec![text.to_string()])),
+        )
+    }
+
+    fn txt_record_bytes(name: &str, strings: Vec<&[u8]>, ttl: u32) -> Record {
+        Record::from_rdata(
+            name.parse().expect("name"),
+            ttl,
+            RData::TXT(TXT::from_bytes(strings)),
         )
     }
 
@@ -1430,7 +1469,7 @@ mod tests {
     }
 
     #[test]
-    fn txt_record_falls_back_to_plain_data_row() {
+    fn txt_record_renders_copyable_data_and_raw_strings_without_ip_scanning() {
         // GIVEN a TXT record whose text contains a standalone IPv4
         let mut message = Message::new(
             22,
@@ -1447,16 +1486,191 @@ mod tests {
         // WHEN rendered
         let html = render_message(&message, received());
 
-        // THEN the TXT record uses the fallback Data row and does not scan
-        // the string for IP-like tokens.
+        // THEN the Data row copies the concatenated text and the Raw strings
+        // row copies the same text quoted, while the renderer still does not
+        // scan the string for IP-like tokens.
         assert!(
             html.contains(
-                "Data</td><td class=\"wrap_value\">backup nameserver 198.51.100.3 available</td>"
+                "Data</td><td class=\"wrap_value\">backup nameserver 198.51.100.3 available <button type=\"button\" class=\"copy_btn\" title=\"Copy TXT data to clipboard\" aria-label=\"Copy backup nameserver 198.51.100.3 available to clipboard\" data-copy-value=\"backup nameserver 198.51.100.3 available\">"
+            ),
+            "{html}"
+        );
+        assert!(
+            html.contains(
+                "Raw strings</td><td class=\"wrap_value\">&quot;backup nameserver 198.51.100.3 available&quot; <button type=\"button\" class=\"copy_btn\" title=\"Copy raw string to clipboard\" aria-label=\"Copy backup nameserver 198.51.100.3 available to clipboard\" data-copy-value=\"backup nameserver 198.51.100.3 available\">"
             ),
             "{html}"
         );
         assert!(
             !html.contains("<span class=\"mono_text\">198.51.100.3</span>"),
+            "{html}"
+        );
+    }
+
+    #[test]
+    fn txt_record_multi_string_renders_concatenated_data_and_per_string_copy_buttons() {
+        // GIVEN a TXT record with two character-strings
+        let mut message = Message::new(
+            39,
+            hickory_proto::op::MessageType::Response,
+            hickory_proto::op::OpCode::Query,
+        );
+        message.metadata.response_code = ResponseCode::NoError;
+        message.add_answer(txt_record_bytes(
+            "example.com.",
+            vec![b"foo".as_slice(), b"bar".as_slice()],
+            300,
+        ));
+
+        // WHEN rendered
+        let html = render_message(&message, received());
+
+        // THEN the Data row copies the concatenated text
+        assert!(
+            html.contains(
+                "Data</td><td class=\"wrap_value\">foobar <button type=\"button\" class=\"copy_btn\" title=\"Copy TXT data to clipboard\" aria-label=\"Copy foobar to clipboard\" data-copy-value=\"foobar\">"
+            ),
+            "{html}"
+        );
+        // AND the Raw strings row shows each string quoted with its own copy
+        // button, copying the unquoted string.
+        assert!(
+            html.contains(
+                "Raw strings</td><td class=\"wrap_value\">&quot;foo&quot; <button type=\"button\" class=\"copy_btn\" title=\"Copy raw string to clipboard\" aria-label=\"Copy foo to clipboard\" data-copy-value=\"foo\">"
+            ),
+            "{html}"
+        );
+        assert!(html.contains("<br>"), "{html}");
+        assert!(
+            html.contains(
+                "&quot;bar&quot; <button type=\"button\" class=\"copy_btn\" title=\"Copy raw string to clipboard\" aria-label=\"Copy bar to clipboard\" data-copy-value=\"bar\">"
+            ),
+            "{html}"
+        );
+    }
+
+    #[test]
+    fn txt_record_escapes_hostile_content_in_data_and_raw_views() {
+        // GIVEN a TXT record carrying an HTML injection attempt
+        let mut message = Message::new(
+            40,
+            hickory_proto::op::MessageType::Response,
+            hickory_proto::op::OpCode::Query,
+        );
+        message.metadata.response_code = ResponseCode::NoError;
+        message.add_answer(txt_record("evil.example.", "<script>alert(1)</script>", 60));
+
+        // WHEN rendered
+        let html = render_message(&message, received());
+
+        // THEN no live script tag survives
+        assert!(!html.contains("<script>"), "{html}");
+        // AND the escaped payload appears in the concatenated Data copy value
+        assert!(
+            html.contains("data-copy-value=\"&lt;script&gt;alert(1)&lt;/script&gt;\""),
+            "{html}"
+        );
+        // AND in the raw quoted display and raw copy value
+        assert!(
+            html.contains("&quot;&lt;script&gt;alert(1)&lt;/script&gt;&quot;"),
+            "{html}"
+        );
+        assert!(
+            html.contains(
+                "Raw strings</td><td class=\"wrap_value\">&quot;&lt;script&gt;alert(1)&lt;/script&gt;&quot; <button type=\"button\" class=\"copy_btn\" title=\"Copy raw string to clipboard\" aria-label=\"Copy &lt;script&gt;alert(1)&lt;/script&gt; to clipboard\" data-copy-value=\"&lt;script&gt;alert(1)&lt;/script&gt;\">"
+            ),
+            "{html}"
+        );
+    }
+
+    #[test]
+    fn raw_strings_html_empty_renders_placeholder() {
+        // GIVEN no raw strings
+        // WHEN rendered
+        let html = raw_strings_html(&[]);
+        // THEN an em-dash placeholder is returned
+        assert_eq!(html, "\u{2014}");
+    }
+
+    #[test]
+    fn txt_record_empty_renders_placeholder_data_and_raw_strings() {
+        // GIVEN a TXT record with no character-strings
+        let mut message = Message::new(
+            41,
+            hickory_proto::op::MessageType::Response,
+            hickory_proto::op::OpCode::Query,
+        );
+        message.metadata.response_code = ResponseCode::NoError;
+        message.add_answer(txt_record_bytes("example.com.", Vec::new(), 300));
+
+        // WHEN rendered
+        let html = render_message(&message, received());
+
+        // THEN neither row offers a copy button for absent data
+        assert!(
+            html.contains("Data</td><td class=\"wrap_value\">\u{2014}</td>"),
+            "{html}"
+        );
+        assert!(
+            html.contains("Raw strings</td><td class=\"wrap_value\">\u{2014}</td>"),
+            "{html}"
+        );
+        assert!(
+            !html.contains("copy_btn"),
+            "empty TXT should not render a copy button: {html}"
+        );
+    }
+
+    #[test]
+    fn txt_record_single_empty_string_renders_quoted_raw_copy_button() {
+        // GIVEN a TXT record with one empty character-string
+        let mut message = Message::new(
+            42,
+            hickory_proto::op::MessageType::Response,
+            hickory_proto::op::OpCode::Query,
+        );
+        message.metadata.response_code = ResponseCode::NoError;
+        message.add_answer(txt_record("example.com.", "", 300));
+
+        // WHEN rendered
+        let html = render_message(&message, received());
+
+        // THEN the Data row is a placeholder, but the raw row still copies
+        // the empty string.
+        assert!(
+            html.contains("Data</td><td class=\"wrap_value\">\u{2014}</td>"),
+            "{html}"
+        );
+        assert!(
+            html.contains(
+                "Raw strings</td><td class=\"wrap_value\">&quot;&quot; <button type=\"button\" class=\"copy_btn\" title=\"Copy raw string to clipboard\" aria-label=\"Copy  to clipboard\" data-copy-value=\"\">"
+            ),
+            "{html}"
+        );
+    }
+
+    #[test]
+    fn raw_strings_html_escapes_carriage_return_for_copy_value() {
+        // GIVEN a raw string containing CRLF
+        // WHEN rendered
+        let html = raw_strings_html(&["a\r\nb".to_string()]);
+        // THEN the copy value preserves CR as a character reference instead
+        // of letting the HTML parser normalize it away
+        assert!(html.contains("data-copy-value=\"a&#13;\nb\""), "{html}");
+        assert!(!html.contains("a\r"), "{html}");
+    }
+
+    #[test]
+    fn raw_strings_html_escapes_literal_quote_in_copy_value() {
+        // GIVEN a raw string containing a double quote
+        // WHEN rendered
+        let html = raw_strings_html(&["a\"b".to_string()]);
+        // THEN the visible text is quoted and the inner quote is escaped,
+        // while the copy value decodes back to the original quote
+        assert!(
+            html.contains(
+                "&quot;a&quot;b&quot; <button type=\"button\" class=\"copy_btn\" title=\"Copy raw string to clipboard\" aria-label=\"Copy a&quot;b to clipboard\" data-copy-value=\"a&quot;b\">"
+            ),
             "{html}"
         );
     }

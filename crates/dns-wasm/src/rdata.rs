@@ -95,6 +95,12 @@ pub(crate) enum RdataValue {
         /// Kind of value named in the copy tooltip (e.g. `"digest"`).
         copy_label: &'static str,
     },
+    /// A TXT record's individual character-strings, rendered as a quoted
+    /// list where each string carries its own copy button.
+    RawStrings {
+        /// The individual character-strings (lossy UTF-8), in wire order.
+        strings: Vec<String>,
+    },
 }
 
 /// One labeled field extracted from record data.
@@ -214,6 +220,26 @@ pub(crate) fn rdata_fields(rdata: &RData) -> Vec<RdataField> {
             ),
             text("Replacement", naptr.replacement.to_string()),
         ],
+        RData::TXT(txt) => {
+            let raw: Vec<String> = txt
+                .txt_data
+                .iter()
+                .map(|s| String::from_utf8_lossy(s).into_owned())
+                .collect();
+            let data = txt.to_string();
+            let data_field = if data.is_empty() {
+                text("Data", "\u{2014}".to_string())
+            } else {
+                copyable_data_field("Data", data, "TXT data")
+            };
+            vec![
+                data_field,
+                RdataField {
+                    label: "Raw strings",
+                    value: RdataValue::RawStrings { strings: raw },
+                },
+            ]
+        }
         _ => Vec::new(),
     }
 }
@@ -1533,17 +1559,120 @@ mod tests {
     }
 
     #[test]
-    fn rdata_fields_txt_is_empty_for_renderer_fallback() {
-        // GIVEN a TXT record's rdata
-        let rdata = RData::TXT(TXT::new(vec![
-            "backup nameserver 198.51.100.3 available".to_string(),
-        ]));
+    fn rdata_fields_txt_returns_concatenated_data_and_raw_strings() {
+        // GIVEN a TXT record with two character-strings
+        let rdata = RData::TXT(TXT::from_bytes(vec![b"foo".as_slice(), b"bar".as_slice()]));
 
         // WHEN fields are extracted
         let fields = rdata_fields(&rdata);
 
-        // THEN no typed fields are returned, so the renderer uses the plain
-        // fallback row.
-        assert!(fields.is_empty());
+        // THEN the first field is the concatenated copyable data and the
+        // second is the raw per-string view.
+        assert_eq!(fields.len(), 2);
+        assert_eq!(fields[0], copyable_data_field("Data", "foobar", "TXT data"));
+        assert_eq!(
+            fields[1],
+            RdataField {
+                label: "Raw strings",
+                value: RdataValue::RawStrings {
+                    strings: vec!["foo".to_string(), "bar".to_string()]
+                }
+            }
+        );
+    }
+
+    #[test]
+    fn rdata_fields_txt_single_string_keeps_both_views() {
+        // GIVEN a single-string TXT record
+        let rdata = RData::TXT(TXT::new(vec!["v=spf1 -all".to_string()]));
+
+        // WHEN fields are extracted
+        let fields = rdata_fields(&rdata);
+
+        // THEN both the Data and Raw strings fields are present.
+        assert_eq!(fields.len(), 2);
+        assert_eq!(
+            fields[0],
+            copyable_data_field("Data", "v=spf1 -all", "TXT data")
+        );
+        assert_eq!(
+            fields[1],
+            RdataField {
+                label: "Raw strings",
+                value: RdataValue::RawStrings {
+                    strings: vec!["v=spf1 -all".to_string()]
+                }
+            }
+        );
+    }
+
+    #[test]
+    fn rdata_fields_txt_invalid_utf8_is_lossy_in_both_views() {
+        // GIVEN a TXT record with an invalid UTF-8 byte
+        let rdata = RData::TXT(TXT::from_bytes(vec![[0xffu8, 0x41].as_slice()]));
+
+        // WHEN fields are extracted
+        let fields = rdata_fields(&rdata);
+
+        // THEN both the concatenated display and the raw string use the
+        // replacement character.
+        assert_eq!(
+            fields[0],
+            copyable_data_field("Data", "\u{FFFD}A", "TXT data")
+        );
+        assert_eq!(
+            fields[1],
+            RdataField {
+                label: "Raw strings",
+                value: RdataValue::RawStrings {
+                    strings: vec!["\u{FFFD}A".to_string()]
+                }
+            }
+        );
+    }
+
+    #[test]
+    fn rdata_fields_txt_empty_has_placeholder_data_and_empty_raw_strings() {
+        // GIVEN a TXT record with no character-strings
+        let rdata = RData::TXT(TXT::from_bytes(Vec::new()));
+
+        // WHEN fields are extracted
+        let fields = rdata_fields(&rdata);
+
+        // THEN the Data row is a placeholder and the Raw strings row is empty.
+        assert_eq!(fields.len(), 2);
+        assert_eq!(fields[0], text("Data", "\u{2014}"));
+        assert_eq!(
+            fields[1],
+            RdataField {
+                label: "Raw strings",
+                value: RdataValue::RawStrings {
+                    strings: Vec::new()
+                }
+            }
+        );
+    }
+
+    #[test]
+    fn rdata_fields_txt_single_empty_string_keeps_raw_copy_but_placeholder_data() {
+        // GIVEN a TXT record with one empty character-string
+        let rdata = RData::TXT(TXT::new(vec![String::new()]));
+
+        // WHEN fields are extracted
+        let fields = rdata_fields(&rdata);
+
+        // THEN the concatenated Data row is a placeholder, while the raw
+        // view still carries the empty string for copying.
+        assert_eq!(fields.len(), 2);
+        assert_eq!(fields[0], text("Data", "\u{2014}"));
+        assert_eq!(
+            fields[1],
+            RdataField {
+                label: "Raw strings",
+                value: RdataValue::RawStrings {
+                    strings: vec![String::new()]
+                }
+            }
+        );
     }
 }
