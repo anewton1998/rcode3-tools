@@ -2,8 +2,8 @@ use icann_rdap_common::prelude::Domain;
 
 use super::common::{append_common, nameserver_list};
 use super::html::{
-    dns_query_suffix_html, kv_table, lookup_with_scopes, mono, push_unicode, render, row, section,
-    title, with_copy,
+    dns_query_anchor, dns_query_suffix_html, kv_table, lookup_with_scopes_extra, mono,
+    push_unicode, render, row, section, title, with_copy,
 };
 
 /// The reverse-DNS base query code for a domain name, if it is one:
@@ -34,8 +34,18 @@ pub(crate) fn domain_html(domain: &Domain, authority: &str, anchor: &str) -> Str
         let value = match rdns_base(name) {
             Some(base) => {
                 // A trailing root dot is display-only; the query value
-                // uses the canonical untrailing-dot form.
-                lookup_with_scopes(copied, base, &mono(name))
+                // uses the canonical untrailing-dot form. The reverse name
+                // gains a single cross-app DNS query link matching its
+                // address family — A for in-addr.arpa (IPv4), AAAA for
+                // ip6.arpa (IPv6) — folded into the same parenthesis as
+                // the ⌕ scope links. The link targets the reverse name
+                // itself.
+                let dns = match base {
+                    "rdns_ipv4" => dns_query_anchor(copied, "A"),
+                    "rdns_ipv6" => dns_query_anchor(copied, "AAAA"),
+                    _ => String::new(),
+                };
+                lookup_with_scopes_extra(copied, base, &mono(name), &dns)
             }
             // A forward domain gets the (⌕ A AAAA) cross-app DNS query
             // suffix so its address records can be looked up in the DNS
@@ -309,8 +319,8 @@ mod tests {
     }
 
     #[test]
-    fn reverse_domain_gets_no_dns_explorer_a_aaaa_links() {
-        // GIVEN a reverse-DNS domain
+    fn reverse_ipv4_domain_gets_only_an_a_dns_link() {
+        // GIVEN an IPv4 reverse-DNS domain (in-addr.arpa)
         let json = r#"{
             "objectClassName": "domain",
             "handle": "2.0.192.in-addr.arpa",
@@ -321,9 +331,139 @@ mod tests {
         // WHEN rendered
         let html = domain_html(&domain, "rdap.example", "");
 
-        // THEN no cross-app A/AAAA DNS links are added (reverse names have none)
-        assert!(!html.contains("ns_query_link"), "{html}");
-        assert!(!html.contains("dns-explorer"), "{html}");
+        // THEN the name carries a single cross-app A link (NOT AAAA)
+        // targeting the reverse name itself, alongside the rdns scope links
+        assert!(
+            html.contains("href=\"../dns-explorer?name=2.0.192.in-addr.arpa&amp;type=A\""),
+            "missing A link: {html}"
+        );
+        assert!(
+            !html.contains("type=AAAA"),
+            "IPv4 reverse name should not get an AAAA link: {html}"
+        );
+        assert!(
+            html.contains("queryType = 'rdns_ipv4_top'"),
+            "scope links should remain: {html}"
+        );
+        // One combined parenthesis: the A link trails the scope icons and
+        // is NOT split off into a second `(⌕ …)` group.
+        let bottom = html
+            .find("rdap-icon rdap-bottom")
+            .unwrap_or_else(|| panic!("bottom scope icon missing: {html}"));
+        let a_link = html
+            .find(">A</a>")
+            .unwrap_or_else(|| panic!("A link missing: {html}"));
+        assert!(bottom < a_link, "A should trail the scope icons: {html}");
+        assert!(
+            !html.contains(") (\u{2315}"),
+            "should be one combined paren, not two: {html}"
+        );
+        // exactly one magnifier glyph (the bare anchor, not a second
+        // `dns_query_suffix_html` accidentally appended)
+        assert_eq!(
+            html.matches('\u{2315}').count(),
+            1,
+            "expected a single magnifier glyph: {html}"
+        );
+    }
+
+    #[test]
+    fn reverse_ipv6_domain_gets_only_an_aaaa_dns_link() {
+        // GIVEN an IPv6 reverse-DNS domain (ip6.arpa)
+        let json = r#"{
+            "objectClassName": "domain",
+            "handle": "8.b.d.0.1.0.0.2.ip6.arpa",
+            "ldhName": "8.b.d.0.1.0.0.2.ip6.arpa"
+        }"#;
+        let domain: Domain = serde_json::from_str(json).unwrap();
+
+        // WHEN rendered
+        let html = domain_html(&domain, "rdap.example", "");
+
+        // THEN the name carries a single cross-app AAAA link (NOT A)
+        // targeting the reverse name itself, alongside the rdns scope links
+        assert!(
+            html.contains("href=\"../dns-explorer?name=8.b.d.0.1.0.0.2.ip6.arpa&amp;type=AAAA\""),
+            "missing AAAA link: {html}"
+        );
+        assert!(
+            !html.contains("type=A\""),
+            "IPv6 reverse name should not get an A link: {html}"
+        );
+        assert!(
+            html.contains("queryType = 'rdns_ipv6_top'"),
+            "scope links should remain: {html}"
+        );
+        // exactly one magnifier glyph
+        assert_eq!(
+            html.matches('\u{2315}').count(),
+            1,
+            "expected a single magnifier glyph: {html}"
+        );
+    }
+
+    #[test]
+    fn reverse_domain_trailing_dot_strips_dot_from_a_aaaa_query() {
+        // GIVEN a reverse-DNS name with a trailing root period
+        let json = r#"{
+            "objectClassName": "domain",
+            "handle": "1.192.in-addr.arpa",
+            "ldhName": "1.192.in-addr.arpa."
+        }"#;
+        let domain: Domain = serde_json::from_str(json).unwrap();
+
+        // WHEN rendered
+        let html = domain_html(&domain, "rdap.example", "");
+
+        // THEN the A/AAAA query value drops the trailing dot but display keeps it
+        assert!(
+            html.contains("href=\"../dns-explorer?name=1.192.in-addr.arpa&amp;type=A\""),
+            "trailing dot leaked into A query: {html}"
+        );
+        assert!(
+            !html.contains("in-addr.arpa.&amp;type=A"),
+            "trailing dot leaked into A query: {html}"
+        );
+        assert!(
+            html.contains("1.192.in-addr.arpa."),
+            "display lost the dot: {html}"
+        );
+    }
+
+    #[test]
+    fn reverse_domain_hostile_name_is_escaped_on_combined_path() {
+        // GIVEN a reverse-DNS name carrying attribute- and query-breaking
+        // characters (still ends in in-addr.arpa so it classifies as rdns)
+        let json = r#"{
+            "objectClassName": "domain",
+            "handle": "X",
+            "ldhName": "x\"y&z#1.in-addr.arpa"
+        }"#;
+        let domain: Domain = serde_json::from_str(json).unwrap();
+
+        // WHEN rendered
+        let html = domain_html(&domain, "rdap.example", "");
+
+        // THEN the A href percent-encodes the query metacharacters
+        // (`"`, `&`, `#`) so none can smuggle a parameter or fragment
+        assert!(html.contains("%22"), "quote not percent-encoded: {html}");
+        assert!(
+            html.contains("%26"),
+            "ampersand not percent-encoded: {html}"
+        );
+        assert!(html.contains("%23"), "hash not percent-encoded: {html}");
+        // and the in-page click attribute carries no raw double quote
+        assert!(
+            !html.contains("query = 'x\""),
+            "raw quote in click attr: {html}"
+        );
+        // the A link still targets the (encoded) reverse name; an IPv4
+        // reverse name gets no AAAA link
+        assert!(html.contains("type=A\""), "missing A link: {html}");
+        assert!(
+            !html.contains("type=AAAA"),
+            "IPv4 reverse should have no AAAA link: {html}"
+        );
     }
 
     #[test]

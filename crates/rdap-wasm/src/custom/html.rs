@@ -274,20 +274,42 @@ pub(crate) fn scope_links(value: &str, base_code: &str) -> String {
     .collect::<String>()
 }
 
+/// Renders a value as its lookup link followed by a parenthesis
+/// containing the magnifier `⌕` (U+2315), the four scope icon links, and
+/// any `extra` trailing cross-app links: `{link} (⌕{icons} {extra})` (a
+/// space precedes `extra` when non-empty). `display` is the link's
+/// pre-rendered inner HTML. Empty values render as plain display text (a
+/// lookup on an empty query is meaningless).
+///
+/// This is the shared single-paren pattern behind [`lookup_with_scopes`]
+/// (no `extra`) and [`addr_with_scopes`] (`extra` is the trailing `PTR`
+/// link), so a reverse-DNS name can fold its cross-app A/AAAA links into
+/// the same parenthesis as the scope icons.
+pub(crate) fn lookup_with_scopes_extra(
+    value: &str,
+    base_code: &str,
+    display: &str,
+    extra: &str,
+) -> String {
+    if value.is_empty() {
+        return display.to_string();
+    }
+    let icons = scope_links(value, base_code);
+    let inner = if extra.is_empty() {
+        format!("\u{2315}{icons}")
+    } else {
+        format!("\u{2315}{icons} {extra}")
+    };
+    format!("{} ({inner})", lookup_action(value, base_code, display))
+}
+
 /// Renders a value as its lookup link followed by the search glyph
 /// `⌕` (U+2315) and the four scope icon links, wrapped in parentheses:
 /// `{link} (⌕{icons})`. `display` is the link's pre-rendered inner
 /// HTML. Empty values render as plain display text (a lookup on an empty
 /// query is meaningless).
 pub(crate) fn lookup_with_scopes(value: &str, base_code: &str, display: &str) -> String {
-    if value.is_empty() {
-        return display.to_string();
-    }
-    format!(
-        "{} (\u{2315}{})",
-        lookup_action(value, base_code, display),
-        scope_links(value, base_code)
-    )
+    lookup_with_scopes_extra(value, base_code, display, "")
 }
 
 /// Address/CIDR convenience wrapper around [`lookup_with_scopes`] where the
@@ -303,21 +325,12 @@ pub(crate) fn addr_with_scopes(value: &str, base_code: &str) -> String {
     if value.is_empty() {
         return mono(value);
     }
-    let icons = scope_links(value, base_code);
     let ptr = if base_code.ends_with("_addr") {
         ptr_query_link_html(value)
     } else {
         String::new()
     };
-    let inner = if ptr.is_empty() {
-        format!("\u{2315}{icons}")
-    } else {
-        format!("\u{2315}{icons} {ptr}")
-    };
-    format!(
-        "{} ({inner})",
-        lookup_action(value, base_code, &mono(value))
-    )
+    lookup_with_scopes_extra(value, base_code, &mono(value), &ptr)
 }
 
 /// Percent-encodes a value for safe inclusion in a URL query component,
@@ -343,6 +356,43 @@ fn percent_encode_query(s: &str) -> String {
     out
 }
 
+/// A single cross-app DNS query anchor for `name` with the given record
+/// type `rtype` (e.g. `A` / `AAAA`), linking to the sibling DNS Explorer
+/// at `../dns-explorer?name={name}&type={rtype}`.
+///
+/// The name is percent-encoded for the query component and the href is
+/// HTML-escaped (including quotes), so a hostile RDAP `ldhName` can
+/// neither smuggle a query metacharacter nor break out of the attribute;
+/// the `title`/`aria-label` keep the raw (HTML-escaped) name. An empty
+/// `name` renders nothing.
+pub(crate) fn dns_query_anchor(name: &str, rtype: &str) -> String {
+    if name.is_empty() {
+        return String::new();
+    }
+    let enc = percent_encode_query(name);
+    let href = escape_attr(&format!("../dns-explorer?name={enc}&type={rtype}"));
+    let label = escape_attr(&format!("Query {rtype} records for {name}"));
+    format!(
+        "<a class=\"ns_query_link\" href=\"{href}\" title=\"{label}\" aria-label=\"{label}\">{rtype}</a>"
+    )
+}
+
+/// The two cross-app DNS A/AAAA query anchors for `name`, WITHOUT the
+/// surrounding `ns_query_suffix` span, magnifier, or parentheses — for
+/// embedding inside another parenthesis.
+///
+/// Encoding mirrors [`dns_query_anchor`]. An empty `name` renders nothing.
+pub(crate) fn dns_a_aaaa_anchors(name: &str) -> String {
+    if name.is_empty() {
+        return String::new();
+    }
+    format!(
+        "{} {}",
+        dns_query_anchor(name, "A"),
+        dns_query_anchor(name, "AAAA")
+    )
+}
+
 /// Renders the `(⌕ A AAAA)` cross-app DNS query suffix for a host name,
 /// linking to the sibling DNS Explorer mounted at `../dns-explorer`.
 ///
@@ -362,16 +412,12 @@ fn percent_encode_query(s: &str) -> String {
 /// keep the raw (HTML-escaped) name so tooltips stay human-readable. An
 /// empty `name` renders nothing.
 pub(crate) fn dns_query_suffix_html(name: &str) -> String {
-    if name.is_empty() {
+    let anchors = dns_a_aaaa_anchors(name);
+    if anchors.is_empty() {
         return String::new();
     }
-    let enc = percent_encode_query(name);
-    let a_href = escape_attr(&format!("../dns-explorer?name={enc}&type=A"));
-    let aaaa_href = escape_attr(&format!("../dns-explorer?name={enc}&type=AAAA"));
-    let a_label = escape_attr(&format!("Query A records for {name}"));
-    let aaaa_label = escape_attr(&format!("Query AAAA records for {name}"));
     format!(
-        "<span class=\"ns_query_suffix\">(<span class=\"ns_query_glyph\" aria-hidden=\"true\">\u{2315}</span> <a class=\"ns_query_link\" href=\"{a_href}\" title=\"{a_label}\" aria-label=\"{a_label}\">A</a> <a class=\"ns_query_link\" href=\"{aaaa_href}\" title=\"{aaaa_label}\" aria-label=\"{aaaa_label}\">AAAA</a>)</span>"
+        "<span class=\"ns_query_suffix\">(<span class=\"ns_query_glyph\" aria-hidden=\"true\">\u{2315}</span> {anchors})</span>"
     )
 }
 
@@ -580,6 +626,66 @@ mod tests {
         // GIVEN an empty name
         // WHEN/THEN no suffix markup is produced
         assert_eq!(dns_query_suffix_html(""), "");
+    }
+
+    #[test]
+    fn dns_a_aaaa_anchors_renders_two_links_without_wrapping_span() {
+        // GIVEN a host name
+        let html = dns_a_aaaa_anchors("ns1.example.com");
+
+        // THEN it is the two anchors only — no ns_query_suffix span,
+        // no magnifier glyph, no parentheses
+        assert_eq!(html.matches("class=\"ns_query_link\"").count(), 2, "{html}");
+        assert!(
+            html.contains("href=\"../dns-explorer?name=ns1.example.com&amp;type=A\""),
+            "{html}"
+        );
+        assert!(
+            html.contains("href=\"../dns-explorer?name=ns1.example.com&amp;type=AAAA\""),
+            "{html}"
+        );
+        assert!(!html.contains("ns_query_suffix"), "{html}");
+        assert!(!html.contains("\u{2315}"), "{html}");
+        assert!(!html.contains('('), "no paren: {html}");
+    }
+
+    #[test]
+    fn dns_a_aaaa_anchors_empty_renders_nothing() {
+        // GIVEN an empty name
+        // WHEN/THEN no anchors are produced
+        assert_eq!(dns_a_aaaa_anchors(""), "");
+    }
+
+    #[test]
+    fn lookup_with_scopes_extra_appends_extra_inside_the_paren() {
+        // GIVEN a value with extra trailing cross-app links
+        let html = lookup_with_scopes_extra("2.0.192.in-addr.arpa", "rdns_ipv4", "d", "EXTRA");
+
+        // THEN the extra sits inside the single parenthesis, after the
+        // scope icons and before the closing paren
+        assert!(html.contains("(\u{2315}"), "missing search glyph: {html}");
+        assert!(
+            html.contains(" EXTRA)"),
+            "extra should sit before ')': {html}"
+        );
+        // and it is one paren, not two
+        assert!(
+            !html.contains(") ("),
+            "should be one combined paren: {html}"
+        );
+    }
+
+    #[test]
+    fn lookup_with_scopes_extra_empty_extra_matches_lookup_with_scopes() {
+        // GIVEN no extra
+        // WHEN/THEN the render is byte-identical to the plain scopes form
+        for (v, c) in [("2.0.192.in-addr.arpa", "rdns_ipv4"), ("", "rdns_ipv6")] {
+            assert_eq!(
+                lookup_with_scopes_extra(v, c, &mono(v), ""),
+                lookup_with_scopes(v, c, &mono(v)),
+                "empty-extra path diverged for {v:?}"
+            );
+        }
     }
 
     #[test]
